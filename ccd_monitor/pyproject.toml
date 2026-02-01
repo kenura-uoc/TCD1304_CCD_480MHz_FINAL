@@ -1,0 +1,12 @@
+[project]
+name = "ccd-monitor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dearpygui>=2.1.1",
+    "numpy>=2.4.1",
+    "pyserial>=3.5",
+    "scipy>=1.17.0",
+]

@@ -1,0 +1,127 @@
+# =============================================================================
+# STM32CubeIDE / STM32CubeMX Project .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Build Output Directories
+# -----------------------------------------------------------------------------
+Debug/
+Release/
+build/
+
+# Object files
+*.o
+*.obj
+*.a
+*.lib
+
+# Executables
+*.elf
+*.hex
+*.bin
+*.srec
+*.s19
+*.map
+*.list
+
+# -----------------------------------------------------------------------------
+# STM32CubeIDE Specific
+# -----------------------------------------------------------------------------
+# Launch configurations (contains local paths)
+*.launch
+
+# STM32CubeIDE settings (contains local paths and workspace-specific settings)
+.settings/
+
+# Project metadata (often contains local paths)
+# Uncomment if you want to ignore these (they help team members import the project)
+# .project
+# .cproject
+
+# -----------------------------------------------------------------------------
+# STM32CubeMX Specific
+# -----------------------------------------------------------------------------
+# MX project backup files
+*.mxproject.bak
+*.ioc.bak
+
+# Generated code backups
+*_bak/
+
+# -----------------------------------------------------------------------------
+# Editor/IDE Specific
+# -----------------------------------------------------------------------------
+# VS Code
+.vscode/
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# Eclipse
+*.pydevproject
+.metadata/
+local.properties
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*#
+.#*
+
+# -----------------------------------------------------------------------------
+# OS Generated Files
+# -----------------------------------------------------------------------------
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# -----------------------------------------------------------------------------
+# Logs and Temporary Files
+# -----------------------------------------------------------------------------
+*.log
+*.tmp
+*.temp
+*.cache
+
+# -----------------------------------------------------------------------------
+# Backup Files
+# -----------------------------------------------------------------------------
+*.bak
+*.backup
+*.orig
+
+# -----------------------------------------------------------------------------
+# Dependency Directories
+# -----------------------------------------------------------------------------
+# If using package managers
+node_modules/
+__pycache__/
+*.pyc
+
+# =============================================================================
+# Project-Specific Ignores (add your own below)
+# =============================================================================
