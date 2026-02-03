@@ -329,276 +329,6 @@ class CCDReceiver:
             return False
         return False
         
-
-        self.filename = filename
-        self.defaults = {
-            "invert_signal": True,
-            "enable_savgol": True,
-            "savgol_window": 11,
-            "frame_average": 1, # 1 = Off
-            "peak_threshold": 15000,
-            "peak_min_dist": 100,
-            "last_project": "Default",
-            "remove_dummies": False,
-            "y_max": 65535
-        }
-        self.data = self.defaults.copy()
-        self.load()
-        
-    def load(self):
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r') as f:
-                    loaded = json.load(f)
-                    self.data.update(loaded)
-            except:
-                print("Failed to load settings")
-                
-    def save(self):
-        try:
-            with open(self.filename, 'w') as f:
-                json.dump(self.data, f, indent=4)
-        except:
-            print("Failed to save settings")
-            
-    def get(self, key):
-        return self.data.get(key, self.defaults.get(key))
-        
-    def set(self, key, value):
-        self.data[key] = value
-
-class ProjectManager:
-    def __init__(self, base_dir="projects"):
-        self.base_dir = base_dir
-        self.current_project = "Default"
-        self.ensure_project("Default")
-        
-    def ensure_project(self, name):
-        path = os.path.join(self.base_dir, name)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            
-    def get_projects(self):
-        if not os.path.exists(self.base_dir):
-            return ["Default"]
-        return [d for d in os.listdir(self.base_dir) if os.path.isdir(os.path.join(self.base_dir, d))]
-        
-    def create_project(self, name):
-        name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip()
-        if not name: return False
-        self.ensure_project(name)
-        self.current_project = name
-        return True
-        
-    def get_recording_dir(self):
-        return os.path.join(self.base_dir, self.current_project)
-
-class Calibration:
-    def __init__(self):
-        self.enabled = False
-        self.p1_px = 0
-        self.p1_nm = 0.0
-        self.p2_px = 3694
-        self.p2_nm = 1000.0
-        self.slope = 0.0
-        self.intercept = 0.0
-        
-    def update(self, p1_px, p1_nm, p2_px, p2_nm):
-        self.p1_px, self.p1_nm = p1_px, p1_nm
-        self.p2_px, self.p2_nm = p2_px, p2_nm
-        if (p2_px - p1_px) != 0:
-            self.slope = (p2_nm - p1_nm) / (p2_px - p1_px)
-            self.intercept = p1_nm - self.slope * p1_px
-            self.enabled = True
-        else:
-            self.enabled = False
-            
-    def pixel_to_nm(self, px):
-        if not self.enabled: return px
-        return self.slope * px + self.intercept
-
-    def get_axis_label(self):
-        return "Wavelength (nm)" if self.enabled else "Pixel Index"
-
-class PeakDetector:
-    def __init__(self):
-        self.threshold = 15000  # Higher default threshold
-        self.min_distance = 100 # Higher default distance
-        self.smooth_window = 11 # Savitzky-Golay window
-        self.poly_order = 3     # Savitzky-Golay order
-        self.use_smoothing = True
-        
-    def find_peaks(self, data):
-        if len(data) == 0: return [], []
-        
-        # 1. Smoothing (Savitzky-Golay)
-        if self.use_smoothing and len(data) > self.smooth_window:
-            # Ensure window is odd and less than data length
-            window = self.smooth_window | 1 
-            if window < 3: window = 3
-            try:
-                processed_data = savgol_filter(data, window, self.poly_order)
-            except:
-                processed_data = data
-        else:
-            processed_data = data
-            
-        # 2. Thresholding
-        candidates = np.where(processed_data > self.threshold)[0]
-        if len(candidates) == 0: return [], []
-        
-        # 3. Local Maxima with optimized neighbor check
-        #   (d[i] > d[i-1] AND d[i] > d[i+1])
-        #   We use a vectorized approach manually to be safe
-        
-        peaks_x = []
-        peaks_y = []
-        
-        last_peak_idx = -self.min_distance
-        
-        # Simple Greedy Search on the *processed* data
-        # We look for local maxima
-        
-        # Pre-compute is_peak boolean array
-        padded = np.pad(processed_data, (1, 1), mode='constant', constant_values=0)
-        is_max = (padded[1:-1] > padded[:-2]) & (padded[1:-1] > padded[2:])
-        
-        # Candidate indices are where is_max is true AND value > threshold
-        candidate_indices = np.where(is_max & (processed_data > self.threshold))[0]
-
-        # 4. Filter by Min Distance (Greedy Left-to-Right)
-        final_peaks_x = []
-        final_peaks_y = [] # We return the SMOOTHED y or RAW y? Usually RAW y at that index looks best on graph.
-                           # But for detection the smoothed one was used. Let's return RAW Y.
-        
-        for idx in candidate_indices:
-            if idx - last_peak_idx >= self.min_distance:
-                final_peaks_x.append(idx)
-                final_peaks_y.append(data[idx]) # Use raw data Y value
-                last_peak_idx = idx
-                
-        return np.array(final_peaks_x), np.array(final_peaks_y)
-
-
-class CCDReceiver:
-    def __init__(self):
-        self.pixels = np.zeros(CCD_PIXELS, dtype=np.uint16)
-        self.frame_count = 0
-        self.fps = 0
-        self.running = True
-        self.connected = False
-        self.serial = None
-        self.lock = threading.Lock()
-        self.last_fps_time = time.time()
-        self.fps_frame_count = 0
-        self.frozen = False 
-        self.frame_ready = False
-        self.single_shot_pending = False
-        self.recording = False
-        self.recording_conditional = False
-        self.recorded_frames = []
-        self.pending_single_shot = False # New flag for "One Shot" logic
-        
-        # Frame Averaging
-        self.frame_avg_count = 1
-        self.accum_buffer = None
-        self.accum_count = 0
-        
-    def connect(self, port):
-        if self.serial: self.serial.close()
-        try:
-            self.serial = serial.Serial(port, BAUD_RATE, timeout=0.5)
-            self.connected = True
-            log(f"Connected to {port}")
-            return True
-        except Exception as e:
-            log(f"Connect failed: {e}", "ERROR")
-            self.connected = False
-            return False
-            
-    def disconnect(self):
-        self.connected = False
-        if self.serial: 
-            try:
-                self.serial.close()
-            except:
-                pass
-        self.serial = None
-        log("Disconnected")
-
-    def start_recording(self):
-        self.recording = True
-        self.recorded_frames = []
-        log("Recording Started")
-        
-    def stop_recording(self):
-        self.recording = False
-        log("Recording Stopped")
-        
-    def read_frame(self):
-        if not self.connected or not self.serial: return False
-        try:
-            while self.running:
-                b = self.serial.read(1)
-                if not b: return False
-                if b[0] == 0xCD:
-                    b2 = self.serial.read(1)
-                    if b2 and b2[0] == 0xAB:
-                        data = self.serial.read(FRAME_SIZE - 2)
-                        if len(data) == FRAME_SIZE - 2:
-                            frame_num = struct.unpack('<H', data[0:2])[0]
-                            # Raw pixels
-                            raw_pixels = np.frombuffer(data[2:], dtype=np.uint16).copy()
-                            
-                            # Frame Averaging Logic
-                            if self.frame_avg_count > 1:
-                                if self.accum_buffer is None:
-                                    self.accum_buffer = raw_pixels.astype(np.float32)
-                                    self.accum_count = 1
-                                else:
-                                    self.accum_buffer += raw_pixels
-                                    self.accum_count += 1
-                                    
-                                if self.accum_count >= self.frame_avg_count:
-                                    final_pixels = (self.accum_buffer / self.accum_count).astype(np.uint16)
-                                    self.accum_buffer = None
-                                    self.accum_count = 0
-                                    # Output this average frame
-                                    with self.lock:
-                                        self.pixels = final_pixels
-                                        self.frame_count = frame_num
-                                        self.frame_ready = True
-                                        self._handle_recording(frame_num, final_pixels)
-                                        self._handle_singleshot()
-                            else:
-                                # No averaging
-                                with self.lock:
-                                    self.pixels = raw_pixels
-                                    self.frame_count = frame_num
-                                    self.frame_ready = True
-                                    self._handle_recording(frame_num, raw_pixels)
-                                    self._handle_singleshot()
-                                    
-                            self.fps_frame_count += 1
-                            now = time.time()
-                            if now - self.last_fps_time >= 1.0:
-                                self.fps = self.fps_frame_count
-                                self.fps_frame_count = 0
-                                self.last_fps_time = now
-                            return True
-        except (serial.SerialException, OSError, PermissionError):
-            self.disconnect()
-            return False
-        except Exception as e:
-            # Handle byref error specifically or generic
-            if "byref" in str(e) or "NoneType" in str(e):
-                 # This happens on forceful close
-                 self.disconnect()
-            else:
-                 log(f"Read error: {e}", "ERROR")
-            return False
-        return False
-        
     def _handle_recording(self, frame_num, pixels):
         if self.recording or (self.recording_conditional and not self.frozen):
             self.recorded_frames.append({
@@ -623,6 +353,7 @@ class CCDReceiver:
         """Unfreeze, wait for next frame, then freeze"""
         self.frozen = False
         self.pending_single_shot = True
+
 
 # ==========================================
 # MAIN APP
@@ -928,30 +659,37 @@ class CCDApp:
                             dpg.add_text("Signal Processing")
                             dpg.add_text("Exposure Control")
                             
-                            def update_exposure_slider(s, a):
-                                ranges = {
-                                    "Microseconds (2-10us)": (2, 10),
-                                    "Microseconds (10-100us)": (10, 100),
-                                    "Microseconds (10-1000us)": (10, 1000),
-                                    "Milliseconds (1-100ms)": (1000, 100000), 
-                                    "Long (100ms-1s)": (100000, 1000000)
-                                }
-                                min_v, max_v = ranges.get(a, (10, 1000))
-                                current = dpg.get_value("exp_slider")
-                                if current < min_v: dpg.set_value("exp_slider", min_v)
-                                if current > max_v: dpg.set_value("exp_slider", max_v)
-                                dpg.configure_item("exp_slider", min_value=min_v, max_value=max_v)
-                                # Resend command for safety? Or just wait for user to move slider?
-                                # Let's update command to match new clamped value
-                                if self.receiver.serial:
-                                    val = dpg.get_value("exp_slider")
-                                    self.receiver.serial.write(f"E{val}".encode('ascii'))
-
-                            dpg.add_combo(["Microseconds (2-10us)", "Microseconds (10-100us)", "Microseconds (10-1000us)", "Milliseconds (1-100ms)", "Long (100ms-1s)"], 
-                                         default_value="Microseconds (10-1000us)", callback=update_exposure_slider, width=-1)
+                            # Generate valid exposure values (multiples of 2µs)
+                            exposure_ranges = {
+                                "Microseconds (2-10us)": list(range(2, 12, 2)),       # [2,4,6,8,10]
+                                "Microseconds (10-50us)": list(range(10, 52, 2)),     # [10,12,...,50]
+                                "Microseconds (50-200us)": list(range(50, 202, 10)),  # [50,60,...,200]
+                                "Microseconds (200-1000us)": list(range(200, 1002, 20)), # [200,220,...,1000]
+                            }
                             
-                            dpg.add_slider_int(label="Time (us)", tag="exp_slider", default_value=10, min_value=10, max_value=1000, 
-                                              callback=lambda s,a: self.receiver.serial.write(f"E{a}".encode('ascii')) if self.receiver.serial else None)
+                            def update_range_combo(s, a):
+                                # Update value dropdown with valid values for selected range
+                                values = exposure_ranges.get(a, [10])
+                                str_values = [str(v) for v in values]
+                                dpg.configure_item("exp_value_combo", items=str_values)
+                                dpg.set_value("exp_value_combo", str_values[0])
+                                # Send the first value
+                                if self.receiver.serial:
+                                    self.receiver.serial.write(f"E{values[0]}".encode('ascii'))
+                            
+                            def send_exposure_value(s, a):
+                                val = int(a)
+                                if self.receiver.serial:
+                                    self.receiver.serial.write(f"E{val}".encode('ascii'))
+                            
+                            dpg.add_combo(list(exposure_ranges.keys()), 
+                                         default_value="Microseconds (2-10us)", callback=update_range_combo, 
+                                         width=-1, tag="exp_range_combo")
+                            
+                            # Initial values for 2-10us range
+                            initial_values = [str(v) for v in exposure_ranges["Microseconds (2-10us)"]]
+                            dpg.add_combo(initial_values, default_value="10", 
+                                         callback=send_exposure_value, width=-1, tag="exp_value_combo")
 
                             dpg.add_checkbox(label="Invert (Light=High)", default_value=self.invert_signal, 
                                            callback=lambda s,a: [setattr(self, 'invert_signal', a), self.save_settings()])
@@ -1056,6 +794,18 @@ class CCDApp:
                             dpg.add_theme_color(dpg.mvPlotCol_MarkerOutline, (255, 0, 0, 255), category=dpg.mvThemeCat_Plots)
                             dpg.add_theme_color(dpg.mvPlotCol_MarkerFill, (255, 0, 0, 100), category=dpg.mvThemeCat_Plots)
                     dpg.bind_item_theme("series_peaks", "theme_peaks")
+                    
+                    # Bright theme for live line
+                    with dpg.theme(tag="theme_live"):
+                        with dpg.theme_component(dpg.mvLineSeries):
+                            dpg.add_theme_color(dpg.mvPlotCol_Line, (0, 255, 255, 255), category=dpg.mvThemeCat_Plots)  # Bright cyan
+                    dpg.bind_item_theme("series_live", "theme_live")
+                    
+                    # Brighter history line (orange)
+                    with dpg.theme(tag="theme_history"):
+                        with dpg.theme_component(dpg.mvLineSeries):
+                            dpg.add_theme_color(dpg.mvPlotCol_Line, (255, 165, 0, 200), category=dpg.mvThemeCat_Plots)  # Orange
+                    dpg.bind_item_theme("series_history_line", "theme_history")
 
 
         dpg.create_viewport(title='CCD Monitor 2.0', width=1200, height=800)

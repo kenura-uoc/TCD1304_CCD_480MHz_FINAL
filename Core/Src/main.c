@@ -166,38 +166,65 @@ void Process_USB_Command(uint8_t *buf, uint32_t len) {
   }
 
   if (cmd == 'E') {
-    // Exposure Control: update TIM5 Period (SH)
-    // System Clock = 480MHz. TIM5 (APB1) runs at 240MHz * 2 = 480MHz ?
-    // APB1 Prescaler=2 => Timer Freq = 2 * APB1_Freq?
-    // Need to check clock tree. Assuming Timers run at 240MHz or 480MHz.
-    // In this H7, D2PPRE1=2 (DIV2). AHB=240, APB1=120. Timer Clock = 240MHz.
-    // Wait, main.c PLL: PLL1 M=5 N=192 P=2 Q=20 R=2.
-    // HSE=25MHz. VCO = 25/5 * 192 = 960 MHz.
-    // PLL1P = 960/2 = 480 MHz (SysClk).
-    // HCLK = 480/2 = 240 MHz.
-    // APB1 = 240/2 = 120 MHz.
-    // TIMx Kernel Clock Source = RCC_D2CCIP2R_TIMPRE=0 => PCLK1 * 2 = 240 MHz?
-    // OR if internal clock src... TIM2/3/4/5 are typically on APB1.
-    // If Prescaler=0, F_cnt = 240 MHz.
-    // 1 us = 240 ticks.
-    // Existing TIM3 period=120-1 (0.5us @ 240MHz). Correct.
-    // Existing TIM4 Period=960-1. 960 ticks / 240MHz = 4us = 250kHz sampling?
-    // Wait. Earlier analysis said TIM4 Period 960 gives 500kHz.
-    // If 500kHz -> 2us period. 2us * F_cnt = 960. F_cnt = 480MHz.
-    // So Timers MUST be running at 480MHz.
-    // Check Clock Configuration.
-    // If D2PPRE1=2, APB1=120MHz. If TIMPRE=0, TIMx = 2*APB1 = 240MHz.
-    // If TIMPRE=1, TIMx = 4*APB1? No.
-    // Let's assume User's logic was correct: 480MHz timer clock.
-    // Timer Clock verified as 480MHz.
-    // 1us = 480 ticks.
+    // Exposure Control: Range-based logic per user request
+    // Timer Clock = 480 MHz. 1 µs = 480 ticks.
 
-    uint32_t arr = val * 480;
-    if (arr < 960)
-      arr = 960; // Min 2us
+    uint32_t sh_period_ticks = val * 480;
 
-    __HAL_TIM_SET_AUTORELOAD(&htim5, arr - 1);
-    __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 960); // 2us pulse
+    // Round to nearest multiple of 960 (ADC sample period = 2µs)
+    uint32_t adc_period = 960;
+    sh_period_ticks =
+        ((sh_period_ticks + adc_period / 2) / adc_period) * adc_period;
+
+    // Minimum 2µs SH period
+    if (sh_period_ticks < 960)
+      sh_period_ticks = 960;
+
+    // Determine ICG period based on range
+    uint32_t icg_period_ticks;
+
+    if (sh_period_ticks > 96000) { // > 200us (96000 ticks)
+      // Range: > 200us
+      // Use Dynamic ICG to prevent beat frequency flicker
+      // Formula: ceil(15ms / SH) * SH
+      uint32_t baseline_icg = 7200000; // 15ms default
+      uint32_t multiplier =
+          (baseline_icg + sh_period_ticks - 1) / sh_period_ticks;
+      icg_period_ticks = multiplier * sh_period_ticks;
+    } else {
+      // Range: <= 200us
+      // Use Fixed ICG = 15ms
+      // User says this works reliably for lower/medium exposures
+      icg_period_ticks = 7200000;
+    }
+
+    // === STOP everything for clean timing update ===
+    HAL_ADC_Stop_DMA(&hadc1);
+    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1); // ICG
+    HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3); // SH
+    HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_4); // ADC Trigger
+
+    // === Update TIM2 (ICG) and TIM5 (SH) ===
+    __HAL_TIM_SET_AUTORELOAD(&htim2, icg_period_ticks - 1);
+    __HAL_TIM_SET_AUTORELOAD(&htim5, sh_period_ticks - 1);
+
+    // SH Pulse Width: Revert to 2µs (960 ticks) as originally working
+    __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 960);
+
+    // === Force update events to load new values ===
+    TIM2->EGR = TIM_EGR_UG;
+    TIM5->EGR = TIM_EGR_UG;
+    TIM4->EGR = TIM_EGR_UG;
+    __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+    __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
+    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+
+    // === RESTART in correct order ===
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); // SH first
+    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC Trigger
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ICG last (master)
+    // DMA will be started by TIM2 interrupt on next ICG pulse
+
   } else if (cmd == 'M') {
     // Mode switch placeholder
     // 0=Fast, 1=Stable, 2=Long
@@ -765,6 +792,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   // Frame Synchronization
   if (htim->Instance == TIM2) {
     // ICG Pulse Started (Start of Frame)
+    // IMPORTANT: Stop any in-progress DMA before restarting
+    // Without this, frames can be dropped/corrupted at certain SH timings
+    HAL_ADC_Stop_DMA(&hadc1);
+
     // Restart ADC DMA for One-Shot Capture
     // This ensures we always start at index 0 aligned with ICG
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
