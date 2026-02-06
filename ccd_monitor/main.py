@@ -657,39 +657,7 @@ class CCDApp:
 
                             dpg.add_separator()
                             dpg.add_text("Signal Processing")
-                            dpg.add_text("Exposure Control")
-                            
-                            # Generate valid exposure values (multiples of 2µs)
-                            exposure_ranges = {
-                                "Microseconds (2-10us)": list(range(2, 12, 2)),       # [2,4,6,8,10]
-                                "Microseconds (10-50us)": list(range(10, 52, 2)),     # [10,12,...,50]
-                                "Microseconds (50-200us)": list(range(50, 202, 10)),  # [50,60,...,200]
-                                "Microseconds (200-1000us)": list(range(200, 1002, 20)), # [200,220,...,1000]
-                            }
-                            
-                            def update_range_combo(s, a):
-                                # Update value dropdown with valid values for selected range
-                                values = exposure_ranges.get(a, [10])
-                                str_values = [str(v) for v in values]
-                                dpg.configure_item("exp_value_combo", items=str_values)
-                                dpg.set_value("exp_value_combo", str_values[0])
-                                # Send the first value
-                                if self.receiver.serial:
-                                    self.receiver.serial.write(f"E{values[0]}".encode('ascii'))
-                            
-                            def send_exposure_value(s, a):
-                                val = int(a)
-                                if self.receiver.serial:
-                                    self.receiver.serial.write(f"E{val}".encode('ascii'))
-                            
-                            dpg.add_combo(list(exposure_ranges.keys()), 
-                                         default_value="Microseconds (2-10us)", callback=update_range_combo, 
-                                         width=-1, tag="exp_range_combo")
-                            
-                            # Initial values for 2-10us range
-                            initial_values = [str(v) for v in exposure_ranges["Microseconds (2-10us)"]]
-                            dpg.add_combo(initial_values, default_value="10", 
-                                         callback=send_exposure_value, width=-1, tag="exp_value_combo")
+                            # Note: Exposure is now fixed in firmware (20µs SH, 18ms ICG, 2MHz fM)
 
                             dpg.add_checkbox(label="Invert (Light=High)", default_value=self.invert_signal, 
                                            callback=lambda s,a: [setattr(self, 'invert_signal', a), self.save_settings()])

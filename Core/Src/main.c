@@ -89,6 +89,102 @@ static void MX_TIM5_Init(void);
 void Process_USB_Command(uint8_t *buf, uint32_t len); // Prototype
 /* USER CODE BEGIN PFP */
 
+// ============================================================
+// ESP32-STYLE BIT-BANGING IMPLEMENTATION
+// ============================================================
+
+// GPIO Pin Definitions for direct register access
+#define ICG_PORT GPIOA
+#define ICG_PIN GPIO_PIN_0 // PA0
+#define SH_PORT GPIOA
+#define SH_PIN GPIO_PIN_2 // PA2
+
+// Fast GPIO macros using BSRR register (Set/Reset)
+#define ICG_HIGH() (ICG_PORT->BSRR = ICG_PIN)
+#define ICG_LOW() (ICG_PORT->BSRR = (uint32_t)ICG_PIN << 16)
+#define SH_HIGH() (SH_PORT->BSRR = SH_PIN)
+#define SH_LOW() (SH_PORT->BSRR = (uint32_t)SH_PIN << 16)
+
+// Nanosecond delay using DWT cycle counter
+// STM32H743 at 480MHz: 1 cycle = ~2.08ns
+// To get N nanoseconds: cycles = N * 480 / 1000
+static inline void delay_ns(uint32_t ns) {
+  uint32_t cycles = (ns * 480) / 1000;
+  uint32_t start = DWT->CYCCNT;
+  while ((DWT->CYCCNT - start) < cycles)
+    ;
+}
+
+// ESP32-style delay4ns equivalent (4ns per count)
+// At 480MHz: 4ns ≈ 2 cycles
+static inline void delay4ns(uint32_t count) {
+  uint32_t cycles = count * 2; // ~4ns per count at 480MHz
+  uint32_t start = DWT->CYCCNT;
+  while ((DWT->CYCCNT - start) < cycles)
+    ;
+}
+
+// Configure ICG and SH as GPIO outputs (call after MX_GPIO_Init)
+void Configure_BitBang_GPIO(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  // Enable GPIOA clock (should already be enabled)
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  // Configure PA0 (ICG) as GPIO Output
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  // Configure PA2 (SH) as GPIO Output
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  // Set initial states: ICG HIGH, SH LOW
+  ICG_HIGH();
+  SH_LOW();
+}
+
+// Enable DWT cycle counter for precise timing
+void Enable_DWT_Counter(void) {
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+// =============================================================
+// ESP32-EXACT readLine() implementation
+// This is the EXACT timing from the ESP32 code
+// =============================================================
+void readCCD(void) {
+  // Step 1: ICG goes LOW (start of readout)
+  ICG_LOW();
+
+  // Step 2: Wait t2 = ~37ns (9 * 4ns in ESP32)
+  delay4ns(9);
+
+  // Step 3: SH goes HIGH
+  SH_HIGH();
+
+  // Step 4: SH pulse width = ~400ns (96 * 4ns in ESP32)
+  delay4ns(96);
+
+  // Step 5: SH goes LOW
+  SH_LOW();
+
+  // Step 6: Wait t1 = ~200ns (48 * 4ns in ESP32)
+  delay4ns(48);
+
+  // Step 7: ICG goes HIGH (start integration/readout phase)
+  ICG_HIGH();
+
+  // Step 8: ADC sampling happens during this time
+  // The ADC is triggered by TIM4 which runs continuously
+  // We just wait for the DMA to complete (handled by callback)
+}
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -148,87 +244,10 @@ void Send_CCD_Frame_Binary(void) {
 
 // Process Header Command
 void Process_USB_Command(uint8_t *buf, uint32_t len) {
-  if (len < 2)
-    return;
-
-  // Command Format: 'E' + value (Exposure in microseconds)
-  //                 'M' + value (Mode Index)
-  char cmd = buf[0];
-  uint32_t val = 0;
-
-  // Simple decimal parse
-  for (uint32_t i = 1; i < len; i++) {
-    if (buf[i] >= '0' && buf[i] <= '9') {
-      val = val * 10 + (buf[i] - '0');
-    } else {
-      break;
-    }
-  }
-
-  if (cmd == 'E') {
-    // Exposure Control: Range-based logic per user request
-    // Timer Clock = 480 MHz. 1 µs = 480 ticks.
-
-    uint32_t sh_period_ticks = val * 480;
-
-    // Round to nearest multiple of 960 (ADC sample period = 2µs)
-    uint32_t adc_period = 960;
-    sh_period_ticks =
-        ((sh_period_ticks + adc_period / 2) / adc_period) * adc_period;
-
-    // Minimum 2µs SH period
-    if (sh_period_ticks < 960)
-      sh_period_ticks = 960;
-
-    // Determine ICG period based on range
-    uint32_t icg_period_ticks;
-
-    if (sh_period_ticks > 96000) { // > 200us (96000 ticks)
-      // Range: > 200us
-      // Use Dynamic ICG to prevent beat frequency flicker
-      // Formula: ceil(15ms / SH) * SH
-      uint32_t baseline_icg = 7200000; // 15ms default
-      uint32_t multiplier =
-          (baseline_icg + sh_period_ticks - 1) / sh_period_ticks;
-      icg_period_ticks = multiplier * sh_period_ticks;
-    } else {
-      // Range: <= 200us
-      // Use Fixed ICG = 15ms
-      // User says this works reliably for lower/medium exposures
-      icg_period_ticks = 7200000;
-    }
-
-    // === STOP everything for clean timing update ===
-    HAL_ADC_Stop_DMA(&hadc1);
-    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1); // ICG
-    HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3); // SH
-    HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_4); // ADC Trigger
-
-    // === Update TIM2 (ICG) and TIM5 (SH) ===
-    __HAL_TIM_SET_AUTORELOAD(&htim2, icg_period_ticks - 1);
-    __HAL_TIM_SET_AUTORELOAD(&htim5, sh_period_ticks - 1);
-
-    // SH Pulse Width: Revert to 2µs (960 ticks) as originally working
-    __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 960);
-
-    // === Force update events to load new values ===
-    TIM2->EGR = TIM_EGR_UG;
-    TIM5->EGR = TIM_EGR_UG;
-    TIM4->EGR = TIM_EGR_UG;
-    __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
-    __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
-    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-
-    // === RESTART in correct order ===
-    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); // SH first
-    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC Trigger
-    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ICG last (master)
-    // DMA will be started by TIM2 interrupt on next ICG pulse
-
-  } else if (cmd == 'M') {
-    // Mode switch placeholder
-    // 0=Fast, 1=Stable, 2=Long
-  }
+  // Simplified: Fixed timing mode, no dynamic exposure control
+  // Timer values set in MX_TIMx_Init functions
+  (void)buf;
+  (void)len;
 }
 
 /* USER CODE END 0 */
@@ -282,74 +301,68 @@ int main(void) {
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
 
-  // MPU Config is already called in main start.
-  // Verify MPU Config for SRAM3 (0x30040000 ??? No, D2 is 0x30000000)
-  // The MPU config in this file protects 0x0 size 4GB with NO ACCESS then
-  // enables privileges?? Wait, the generated MPU_Config (lines 558) looks like
-  // a placeholder/default block-all? "MPU_InitStruct.AccessPermission =
-  // MPU_REGION_NO_ACCESS;" I NEED TO FIX MPU CONFIG TO ALLOW ACCESS TO SRAM3 AS
-  // NON-CACHEABLE! The old code had a specific MPU config. I will replace the
-  // MPU config function later or override it here? Actually, I'll update
-  // MPU_Config function below.
-
-  // --- INITIALIZATION ---
+  // --- ESP32-STYLE BIT-BANGING INITIALIZATION ---
   HAL_Delay(1000); // Wait for USB
 
-  // CCR Preload Fix (H7)
-  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
+  // Enable DWT cycle counter for precise nanosecond delays
+  Enable_DWT_Counter();
 
-  TIM2->EGR = TIM_EGR_UG;
-  TIM3->EGR = TIM_EGR_UG;
-  TIM4->EGR = TIM_EGR_UG;
-  TIM5->EGR = TIM_EGR_UG;
-
-  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
+  // Configure PA0 (ICG) and PA2 (SH) as GPIO outputs
+  // This overrides the timer alternate function settings
+  Configure_BitBang_GPIO();
 
   // ADC Calibration
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 
-  // --- STARTUP ---
+  // Start fM clock (TIM3) - this runs continuously like ESP32
+  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
+  TIM3->EGR = TIM_EGR_UG;
+  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // fM 1MHz continuous
 
-  // 1. Start Continuous Clocks (fM - TIM3)
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // fM 4MHz
-
-  // 2. Start ICG, SH, ADC Trigger
-  // 3. Start ICG, SH, ADC Trigger and ICG Interrupt (for Sync)
-  HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); // SH
+  // Start ADC trigger timer (TIM4) - runs continuously for ADC sampling
+  __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+  TIM4->EGR = TIM_EGR_UG;
+  __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC Trigger
 
-  // Enable Period Interrupt for TIM2 (Sync)
-  __HAL_TIM_ENABLE_IT(&htim2, TIM_IT_UPDATE);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ICG
-
-  // ADC DMA is not started here. It is started by TIM2 Interrupt for sync.
-  // Exception: Start once here to prime? No, TIM2 interrupt will fire
-  // immediately on start up? Let's safe-guard force an update event or just
-  // wait for next cycle. The PeriodElapsedCallback will start it.
+  // NOTE: TIM2 (ICG) and TIM5 (SH) are NOT started - we control them via GPIO
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
+
+    // ============================================
+    // ESP32-STYLE MAIN LOOP
+    // ============================================
+
+    // Step 1: Trigger ICG/SH sequence FIRST (exactly like ESP32 readLine())
+    //         This prepares the CCD for readout
+    readCCD();
+
+    // Step 2: NOW start ADC DMA (after ICG goes HIGH)
+    //         ESP32 samples AFTER the ICG/SH pulse sequence
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
+
+    // Step 3: Wait for ADC readout (~15ms for 3694 pixels at 250kHz)
+    // The ADC DMA callback will set frame_ready when complete
+    HAL_Delay(18); // Wait for readout to complete
+
+    // Step 4: Stop DMA and process frame
+    HAL_ADC_Stop_DMA(&hadc1);
+
+    // Step 5: Send frame if ready
     if (frame_ready) {
-      // Frame ready is set by ISR
       Send_CCD_Frame_Binary();
       frame_ready = 0;
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat if PB0 is LED
-                                             // (User LED usually PB0 or P14)
-      // Actually on H743VIT6 usually PE3 or similar? Doesn't matter, can remove
-      // if unsure.
+      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
     }
 
-    // Handle Mode Changes here if we implement USB commands
-    // For now, default to streaming continuous (Mode 0 Equivalent)
+    // Step 6: Integration delay - REMOVED for now since signal saturates
+    // Uncomment and adjust for fluorescence/low-light:
+    // HAL_Delay(10);  // ~30 FPS - adjust as needed
 
     /* USER CODE END WHILE */
 
@@ -502,7 +515,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 7200000 - 1; // 15ms Frame @ 480MHz
+  htim2.Init.Period = 4320000 - 1; // 18ms ICG @ 240MHz timer clock
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -521,7 +534,7 @@ static void MX_TIM2_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 7000; // ICG Pulse Width
+  sConfigOC.Pulse = 100; // ICG LOW for ~400ns (matches ESP32 timing)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
@@ -554,7 +567,7 @@ static void MX_TIM3_Init(void) {
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 240 - 1; // 2MHz fM -> 500kHz Data Rate
+  htim3.Init.Period = 240 - 1; // 1MHz fM @ 240MHz timer clock
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
@@ -605,7 +618,7 @@ static void MX_TIM4_Init(void) {
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Period = 960 - 1; // 480MHz / 960 = 500kHz
+  htim4.Init.Period = 960 - 1; // 250kHz ADC trigger @ 240MHz (4 samples per fM)
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK) {
@@ -618,18 +631,19 @@ static void MX_TIM4_Init(void) {
   if (HAL_TIM_PWM_Init(&htim4) != HAL_OK) {
     Error_Handler();
   }
-  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
-  sSlaveConfig.InputTrigger = TIM_TS_ITR1;
-  if (HAL_TIM_SlaveConfigSynchro(&htim4, &sSlaveConfig) != HAL_OK) {
-    Error_Handler();
-  }
+  // NOTE: Slave mode DISABLED for bit-banging approach - TIM4 runs
+  // independently sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  // sSlaveConfig.InputTrigger = TIM_TS_ITR1;
+  // if (HAL_TIM_SlaveConfigSynchro(&htim4, &sSlaveConfig) != HAL_OK) {
+  //   Error_Handler();
+  // }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 120;
+  sConfigOC.Pulse = 480; // 50% Duty Cycle
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK) {
@@ -663,7 +677,9 @@ static void MX_TIM5_Init(void) {
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 0;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 4800 - 1; // Default 10us
+  htim5.Init.Period =
+      4320000 -
+      1; // 18ms = same as ICG = ONE SH pulse per frame (max integration)
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK) {
@@ -686,9 +702,10 @@ static void MX_TIM5_Init(void) {
   if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 960 - 1;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2; // PWM2: HIGH when CNT >= CCR
+  sConfigOC.Pulse =
+      4320000 - 50; // SH pulse ~50 ticks before end (during ICG LOW)
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH; // SH goes HIGH during ICG LOW
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) {
     Error_Handler();
