@@ -74,6 +74,11 @@ CCD_Frame_t ccd_frame;
 // Mode Control
 volatile uint8_t ccd_mode = 0; // 0=Fast, 1=Stable(OneShot), 2=LongExposure
 volatile uint8_t mode_update_pending = 0;
+
+// Integration Time Control (in milliseconds)
+// Minimum: ~15ms (time to read 3694 pixels at 250kHz)
+// Maximum: 100ms (for low-light/fluorescence)
+volatile uint32_t integration_time_ms = 18; // Default 18ms
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -242,12 +247,33 @@ void Send_CCD_Frame_Binary(void) {
   }
 }
 
-// Process Header Command
+// Process USB Command
+// Format: 'I<time_ms>' for integration time (e.g., "I25" = 25ms)
 void Process_USB_Command(uint8_t *buf, uint32_t len) {
-  // Simplified: Fixed timing mode, no dynamic exposure control
-  // Timer values set in MX_TIMx_Init functions
-  (void)buf;
-  (void)len;
+  if (len == 0)
+    return;
+
+  // Integration Time Command: I<time_ms>
+  if (buf[0] == 'I' && len > 1) {
+    uint32_t new_time = 0;
+    for (uint32_t i = 1; i < len; i++) {
+      if (buf[i] >= '0' && buf[i] <= '9') {
+        new_time = new_time * 10 + (buf[i] - '0');
+      } else {
+        break; // Stop at non-digit
+      }
+    }
+
+    // Clamp to valid range [15, 100] ms
+    // Minimum ~15ms to read all 3694 pixels at 250kHz
+    // Maximum 100ms for extended integration
+    if (new_time < 15)
+      new_time = 15;
+    if (new_time > 100)
+      new_time = 100;
+
+    integration_time_ms = new_time;
+  }
 }
 
 /* USER CODE END 0 */
@@ -346,9 +372,9 @@ int main(void) {
     //         ESP32 samples AFTER the ICG/SH pulse sequence
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
 
-    // Step 3: Wait for ADC readout (~15ms for 3694 pixels at 250kHz)
-    // The ADC DMA callback will set frame_ready when complete
-    HAL_Delay(18); // Wait for readout to complete
+    // Step 3: Wait for ADC readout
+    // Integration time is controllable via USB command (default 18ms)
+    HAL_Delay(integration_time_ms);
 
     // Step 4: Stop DMA and process frame
     HAL_ADC_Stop_DMA(&hadc1);

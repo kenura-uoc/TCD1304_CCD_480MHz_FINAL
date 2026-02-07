@@ -61,7 +61,6 @@ class SettingsManager:
     def __init__(self, filename="settings.json"):
         self.filename = filename
         self.defaults = {
-            "invert_signal": True,
             "enable_savgol": True,
             "savgol_window": 11,
             "frame_average": 1, # 1 = Off
@@ -69,7 +68,8 @@ class SettingsManager:
             "peak_min_dist": 100,
             "last_project": "Default",
             "remove_dummies": False,
-            "y_max": 65535
+            "y_max": 65535,
+            "integration_time_ms": 18  # Default integration time in ms
         }
         self.data = self.defaults.copy()
         self.load()
@@ -354,6 +354,20 @@ class CCDReceiver:
         self.frozen = False
         self.pending_single_shot = True
 
+    def send_integration_time(self, time_ms):
+        """Send integration time command to STM32"""
+        if self.connected and self.serial:
+            try:
+                # Command format: I<time_ms>
+                cmd = f"I{time_ms}".encode('ascii')
+                self.serial.write(cmd)
+                log(f"Sent integration time: {time_ms}ms")
+                return True
+            except:
+                self.disconnect()
+                return False
+        return False
+
 
 # ==========================================
 # MAIN APP
@@ -367,8 +381,7 @@ class CCDApp:
         self.calibration = Calibration()
         self.peak_detector = PeakDetector()
         
-        # Load Settings
-        self.invert_signal = self.settings.get("invert_signal")
+        # Load Settings - Note: Signal is always inverted (light=high)
         self.peak_detector.use_smoothing = self.settings.get("enable_savgol")
         self.peak_detector.smooth_window = self.settings.get("savgol_window")
         self.peak_detector.threshold = self.settings.get("peak_threshold")
@@ -376,6 +389,8 @@ class CCDApp:
         self.receiver.frame_avg_count = self.settings.get("frame_average")
         self.remove_dummies = self.settings.get("remove_dummies")
         self.y_max = self.settings.get("y_max")
+        self.integration_time_ms = self.settings.get("integration_time_ms")
+        self.pending_integration_time = None  # For confirmation dialog
         
         self.project_mgr.ensure_project(self.settings.get("last_project"))
         self.project_mgr.current_project = self.settings.get("last_project")
@@ -404,7 +419,6 @@ class CCDApp:
                 time.sleep(0.5)
 
     def save_settings(self):
-        self.settings.set("invert_signal", self.invert_signal)
         self.settings.set("enable_savgol", self.peak_detector.use_smoothing)
         self.settings.set("savgol_window", self.peak_detector.smooth_window)
         self.settings.set("frame_average", self.receiver.frame_avg_count)
@@ -413,6 +427,7 @@ class CCDApp:
         self.settings.set("last_project", self.project_mgr.current_project)
         self.settings.set("remove_dummies", self.remove_dummies)
         self.settings.set("y_max", self.y_max)
+        self.settings.set("integration_time_ms", self.integration_time_ms)
         self.settings.save()
 
     def refresh_ports(self):
@@ -431,9 +446,39 @@ class CCDApp:
         self.receiver.disconnect()
         dpg.set_value("status_txt", "Disconnected")
 
-    def cb_mode(self, s, a):
-        idx = ["Fast", "Stable", "Long"].index(a.split()[0])
-        self.receiver.set_mode(idx)
+    def cb_integration_time_change(self, sender, app_data):
+        """Called when integration time slider changes - show confirmation dialog"""
+        new_time = int(app_data)
+        if new_time != self.integration_time_ms:
+            self.pending_integration_time = new_time
+            dpg.configure_item("integration_confirm_win", show=True)
+            dpg.set_value("integration_confirm_txt", 
+                f"Change integration time from {self.integration_time_ms}ms to {new_time}ms?\n\nThis will restart the STM32 timing clocks.")
+    
+    def cb_confirm_integration_change(self):
+        """User confirmed integration time change"""
+        if self.pending_integration_time is not None:
+            old_time = self.integration_time_ms
+            self.integration_time_ms = self.pending_integration_time
+            # Send command to STM32
+            if self.receiver.send_integration_time(self.integration_time_ms):
+                log(f"Integration time changed: {old_time}ms -> {self.integration_time_ms}ms")
+                self.save_settings()
+            else:
+                log("Failed to send integration time (not connected?)", "WARN")
+                # Revert slider to old value
+                dpg.set_value("slider_integration", old_time)
+                self.integration_time_ms = old_time
+            self.pending_integration_time = None
+        dpg.configure_item("integration_confirm_win", show=False)
+    
+    def cb_cancel_integration_change(self):
+        """User cancelled integration time change"""
+        if self.pending_integration_time is not None:
+            # Revert slider to current value
+            dpg.set_value("slider_integration", self.integration_time_ms)
+            self.pending_integration_time = None
+        dpg.configure_item("integration_confirm_win", show=False)
 
     def cb_create_project(self):
         name = dpg.get_value("new_proj_name")
@@ -551,9 +596,8 @@ class CCDApp:
                 self.receiver.frame_ready = False
                 pixels = self.receiver.pixels.copy()
             
-            # 1. Inversion
-            if self.invert_signal:
-                pixels = 65535 - pixels
+            # 1. Inversion - Always invert (TCD1304 outputs dark=high, light=low)
+            pixels = 65535 - pixels
                 
             # 2. X Axis & Dummy Removal
             if self.calibration.enabled:
@@ -601,8 +645,8 @@ class CCDApp:
             
             idx = dpg.get_value("slider_hist")
             h_pixels = self.history_data['pixels'][idx]
-            if self.invert_signal: 
-                 h_pixels = 65535 - h_pixels
+            # Always invert history data too
+            h_pixels = 65535 - h_pixels
                  
             if self.calibration.enabled:
                 h_full_x = np.array([self.calibration.pixel_to_nm(i) for i in range(CCD_PIXELS)])
@@ -647,20 +691,31 @@ class CCDApp:
                             
                             dpg.add_separator()
                             dpg.add_text("Acquisition")
-                            dpg.add_combo(["Fast (Flicker)", "Stable (One-Shot)", "Long (7.3ms)"], 
-                                         default_value="Fast (Flicker)", callback=self.cb_mode, width=-1)
                             
                             with dpg.group(horizontal=True):
                                 dpg.add_button(label="Run", callback=lambda: setattr(self.receiver, 'frozen', False))
                                 dpg.add_button(label="Freeze", callback=lambda: setattr(self.receiver, 'frozen', True))
                                 dpg.add_button(label="Single Shot", callback=self.receiver.trigger_single_shot)
+                            
+                            dpg.add_text("Integration Time (ms)")
+                            dpg.add_text("Min 15ms (readout), Max 100ms", color=(150, 150, 150))
+                            dpg.add_slider_int(label="##integration", tag="slider_integration",
+                                              default_value=self.integration_time_ms, 
+                                              min_value=15, max_value=100,
+                                              callback=self.cb_integration_time_change, width=-1)
+                            
+                            # Integration time confirmation dialog
+                            with dpg.window(label="Confirm Integration Time Change", modal=True, 
+                                          show=False, tag="integration_confirm_win", 
+                                          width=350, height=120, no_resize=True):
+                                dpg.add_text("", tag="integration_confirm_txt", wrap=330)
+                                with dpg.group(horizontal=True):
+                                    dpg.add_button(label="Confirm", callback=self.cb_confirm_integration_change, width=100)
+                                    dpg.add_button(label="Cancel", callback=self.cb_cancel_integration_change, width=100)
 
                             dpg.add_separator()
                             dpg.add_text("Signal Processing")
-                            # Note: Exposure is now fixed in firmware (20µs SH, 18ms ICG, 2MHz fM)
-
-                            dpg.add_checkbox(label="Invert (Light=High)", default_value=self.invert_signal, 
-                                           callback=lambda s,a: [setattr(self, 'invert_signal', a), self.save_settings()])
+                            dpg.add_text("Signal always inverted (Light=High)", color=(100, 200, 100))
                             
                             dpg.add_text("Temporal Smoothing (Avg Frames)")
                             dpg.add_slider_int(label="Avg", default_value=self.receiver.frame_avg_count, min_value=1, max_value=20, 
