@@ -95,100 +95,18 @@ void Process_USB_Command(uint8_t *buf, uint32_t len); // Prototype
 /* USER CODE BEGIN PFP */
 
 // ============================================================
-// ESP32-STYLE BIT-BANGING IMPLEMENTATION
+// HARDWARE TIMER-BASED TCD1304 CONTROL
 // ============================================================
-
-// GPIO Pin Definitions for direct register access
-#define ICG_PORT GPIOA
-#define ICG_PIN GPIO_PIN_0 // PA0
-#define SH_PORT GPIOA
-#define SH_PIN GPIO_PIN_2 // PA2
-
-// Fast GPIO macros using BSRR register (Set/Reset)
-#define ICG_HIGH() (ICG_PORT->BSRR = ICG_PIN)
-#define ICG_LOW() (ICG_PORT->BSRR = (uint32_t)ICG_PIN << 16)
-#define SH_HIGH() (SH_PORT->BSRR = SH_PIN)
-#define SH_LOW() (SH_PORT->BSRR = (uint32_t)SH_PIN << 16)
-
-// Nanosecond delay using DWT cycle counter
-// STM32H743 at 480MHz: 1 cycle = ~2.08ns
-// To get N nanoseconds: cycles = N * 480 / 1000
-static inline void delay_ns(uint32_t ns) {
-  uint32_t cycles = (ns * 480) / 1000;
-  uint32_t start = DWT->CYCCNT;
-  while ((DWT->CYCCNT - start) < cycles)
-    ;
-}
-
-// ESP32-style delay4ns equivalent (4ns per count)
-// At 480MHz: 4ns ≈ 2 cycles
-static inline void delay4ns(uint32_t count) {
-  uint32_t cycles = count * 2; // ~4ns per count at 480MHz
-  uint32_t start = DWT->CYCCNT;
-  while ((DWT->CYCCNT - start) < cycles)
-    ;
-}
-
-// Configure ICG and SH as GPIO outputs (call after MX_GPIO_Init)
-void Configure_BitBang_GPIO(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  // Enable GPIOA clock (should already be enabled)
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  // Configure PA0 (ICG) as GPIO Output
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  // Configure PA2 (SH) as GPIO Output
-  GPIO_InitStruct.Pin = GPIO_PIN_2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  // Set initial states: ICG HIGH, SH LOW
-  ICG_HIGH();
-  SH_LOW();
-}
-
-// Enable DWT cycle counter for precise timing
-void Enable_DWT_Counter(void) {
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CYCCNT = 0;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
-// =============================================================
-// ESP32-EXACT readLine() implementation
-// This is the EXACT timing from the ESP32 code
-// =============================================================
-void readCCD(void) {
-  // Step 1: ICG goes LOW (start of readout)
-  ICG_LOW();
-
-  // Step 2: Wait t2 = ~37ns (9 * 4ns in ESP32)
-  delay4ns(9);
-
-  // Step 3: SH goes HIGH
-  SH_HIGH();
-
-  // Step 4: SH pulse width = ~400ns (96 * 4ns in ESP32)
-  delay4ns(96);
-
-  // Step 5: SH goes LOW
-  SH_LOW();
-
-  // Step 6: Wait t1 = ~200ns (48 * 4ns in ESP32)
-  delay4ns(48);
-
-  // Step 7: ICG goes HIGH (start integration/readout phase)
-  ICG_HIGH();
-
-  // Step 8: ADC sampling happens during this time
-  // The ADC is triggered by TIM4 which runs continuously
-  // We just wait for the DMA to complete (handled by callback)
-}
+//
+// Timer Configuration:
+// - TIM2 (PA0): ICG pulse - Master timer, 18ms period
+// - TIM3 (PB4): fM clock - 1MHz continuous
+// - TIM4: ADC trigger - 250kHz, synced to TIM2
+// - TIM5 (PA2): SH pulse - Slave to TIM2, synced timing
+//
+// This approach eliminates software timing jitter by using
+// hardware-generated PWM signals that are perfectly synchronized.
+// ============================================================
 
 /* USER CODE END PFP */
 
@@ -327,32 +245,42 @@ int main(void) {
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
 
-  // --- ESP32-STYLE BIT-BANGING INITIALIZATION ---
-  HAL_Delay(1000); // Wait for USB
-
-  // Enable DWT cycle counter for precise nanosecond delays
-  Enable_DWT_Counter();
-
-  // Configure PA0 (ICG) and PA2 (SH) as GPIO outputs
-  // This overrides the timer alternate function settings
-  Configure_BitBang_GPIO();
+  // --- HARDWARE TIMER-BASED INITIALIZATION ---
+  HAL_Delay(1000); // Wait for USB enumeration
 
   // ADC Calibration
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 
-  // Start fM clock (TIM3) - this runs continuously like ESP32
-  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  TIM3->EGR = TIM_EGR_UG;
-  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // fM 1MHz continuous
+  // ============================================
+  // START ALL TIMERS FOR CONTINUOUS OPERATION
+  // ============================================
 
-  // Start ADC trigger timer (TIM4) - runs continuously for ADC sampling
+  // Step 1: Start fM clock (TIM3) - 1MHz continuous master clock
+  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
+  TIM3->EGR = TIM_EGR_UG; // Force update to load shadow registers
+  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // fM 1MHz on PB4
+
+  // Step 2: Start ICG timer (TIM2) - Master, triggers SH and ADC
+  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+  TIM2->EGR = TIM_EGR_UG;
+  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ICG pulse on PA0
+
+  // Step 3: Start SH timer (TIM5) - Slave to TIM2, synchronized
+  __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
+  TIM5->EGR = TIM_EGR_UG;
+  __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
+  HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); // SH pulse on PA2
+
+  // Step 4: Start ADC trigger timer (TIM4)
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
   TIM4->EGR = TIM_EGR_UG;
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC Trigger
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC trigger at 250kHz
 
-  // NOTE: TIM2 (ICG) and TIM5 (SH) are NOT started - we control them via GPIO
+  // Step 5: Start ADC in Circular DMA mode for continuous acquisition
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
 
   /* USER CODE END 2 */
 
@@ -361,34 +289,18 @@ int main(void) {
   while (1) {
 
     // ============================================
-    // ESP32-STYLE MAIN LOOP
+    // HARDWARE TIMER-BASED MAIN LOOP
     // ============================================
+    // All timing is handled by hardware timers (TIM2/TIM5 for ICG/SH).
+    // ADC runs continuously triggered by TIM4.
+    // We just wait for frame completion and send data.
 
-    // Step 1: Trigger ICG/SH sequence FIRST (exactly like ESP32 readLine())
-    //         This prepares the CCD for readout
-    readCCD();
-
-    // Step 2: NOW start ADC DMA (after ICG goes HIGH)
-    //         ESP32 samples AFTER the ICG/SH pulse sequence
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
-
-    // Step 3: Wait for ADC readout
-    // Integration time is controllable via USB command (default 18ms)
-    HAL_Delay(integration_time_ms);
-
-    // Step 4: Stop DMA and process frame
-    HAL_ADC_Stop_DMA(&hadc1);
-
-    // Step 5: Send frame if ready
+    // Wait for frame to be captured by DMA
     if (frame_ready) {
       Send_CCD_Frame_Binary();
       frame_ready = 0;
       HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
     }
-
-    // Step 6: Integration delay - REMOVED for now since signal saturates
-    // Uncomment and adjust for fluorescence/low-light:
-    // HAL_Delay(10);  // ~30 FPS - adjust as needed
 
     /* USER CODE END WHILE */
 
@@ -486,8 +398,7 @@ static void MX_ADC1_Init(void) {
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T4_CC4;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.ConversionDataManagement =
-      ADC_CONVERSIONDATA_DMA_ONESHOT; // Changed from CIRCULAR to Fix Rolling
-                                      // Frame
+      ADC_CONVERSIONDATA_DMA_CIRCULAR; // Circular DMA for continuous operation
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -560,7 +471,7 @@ static void MX_TIM2_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 100; // ICG LOW for ~400ns (matches ESP32 timing)
+  sConfigOC.Pulse = 600; // ICG LOW for ~2.5µs (meets TCD1304 min 1000ns)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
@@ -728,10 +639,10 @@ static void MX_TIM5_Init(void) {
   if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM2; // PWM2: HIGH when CNT >= CCR
+  sConfigOC.OCMode = TIM_OCMODE_PWM1; // PWM1: HIGH when CNT < CCR
   sConfigOC.Pulse =
-      4320000 - 50; // SH pulse ~50 ticks before end (during ICG LOW)
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH; // SH goes HIGH during ICG LOW
+      500; // SH HIGH from ~50 ticks to ~550 ticks (~2µs pulse during ICG LOW)
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH; // SH pulse during ICG LOW
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) {
     Error_Handler();
