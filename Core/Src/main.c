@@ -375,18 +375,18 @@ int main(void) {
     // Step 2: NOW trigger CCD readout
     readCCD();
 
-    // Step 3: Wait for integration/readout
-    HAL_Delay(integration_time_ms);
+    // Step 3: Block until DMA captures all 3694 samples (ESP32-style)
+    while (!frame_ready) {
+      // Spin-wait — DMA completion callback sets frame_ready
+    }
 
-    // Step 4: Stop DMA
+    // Step 4: Stop DMA (ONESHOT complete)
     HAL_ADC_Stop_DMA(&hadc1);
 
-    // Step 5: Send frame if ready
-    if (frame_ready) {
-      Send_CCD_Frame_Binary();
-      frame_ready = 0;
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
-    }
+    // Step 5: Send frame
+    Send_CCD_Frame_Binary();
+    frame_ready = 0;
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
 
     /* USER CODE END WHILE */
 
