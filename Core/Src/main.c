@@ -140,7 +140,8 @@ void Configure_BitBang_GPIO(void) {
   GPIO_InitStruct.Pin = GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Speed =
+      GPIO_SPEED_FREQ_MEDIUM; // Reduce slew rate to minimize ringing/noise
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   // Configure PA2 (SH) as GPIO Output
@@ -164,6 +165,9 @@ void Enable_DWT_Counter(void) {
 // This is the EXACT timing from the ESP32 code
 // =============================================================
 void readCCD(void) {
+  // Disable interrupts during critical timing to prevent jitter/flicker
+  __disable_irq();
+
   // Step 1: ICG goes LOW (start of readout)
   ICG_LOW();
 
@@ -185,9 +189,8 @@ void readCCD(void) {
   // Step 7: ICG goes HIGH (start integration/readout phase)
   ICG_HIGH();
 
-  // Step 8: ADC sampling happens during this time
-  // The ADC is triggered by TIM4 which runs continuously
-  // We just wait for the DMA to complete (handled by callback)
+  // Re-enable interrupts
+  __enable_irq();
 }
 
 /* USER CODE END PFP */
@@ -361,22 +364,21 @@ int main(void) {
   while (1) {
 
     // ============================================
-    // ESP32-STYLE MAIN LOOP
+    // BIT-BANGING + ONESHOT DMA (REORDERED)
     // ============================================
+    // Key: Arm DMA BEFORE triggering CCD readout
+    // This ensures buffer starts at pixel 0 AND no gap
 
-    // Step 1: Trigger ICG/SH sequence FIRST (exactly like ESP32 readLine())
-    //         This prepares the CCD for readout
-    readCCD();
-
-    // Step 2: NOW start ADC DMA (after ICG goes HIGH)
-    //         ESP32 samples AFTER the ICG/SH pulse sequence
+    // Step 1: Arm DMA first (waits for TIM4 triggers)
     HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
 
-    // Step 3: Wait for ADC readout
-    // Integration time is controllable via USB command (default 18ms)
+    // Step 2: NOW trigger CCD readout
+    readCCD();
+
+    // Step 3: Wait for integration/readout
     HAL_Delay(integration_time_ms);
 
-    // Step 4: Stop DMA and process frame
+    // Step 4: Stop DMA
     HAL_ADC_Stop_DMA(&hadc1);
 
     // Step 5: Send frame if ready
@@ -385,10 +387,6 @@ int main(void) {
       frame_ready = 0;
       HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
     }
-
-    // Step 6: Integration delay - REMOVED for now since signal saturates
-    // Uncomment and adjust for fluorescence/low-light:
-    // HAL_Delay(10);  // ~30 FPS - adjust as needed
 
     /* USER CODE END WHILE */
 
@@ -486,8 +484,8 @@ static void MX_ADC1_Init(void) {
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T4_CC4;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.ConversionDataManagement =
-      ADC_CONVERSIONDATA_DMA_ONESHOT; // Changed from CIRCULAR to Fix Rolling
-                                      // Frame
+      ADC_CONVERSIONDATA_DMA_ONESHOT; // ONESHOT ensures buffer starts at pixel
+                                      // 0
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
   hadc1.Init.OversamplingMode = DISABLE;
