@@ -295,12 +295,15 @@ int main(void) {
     // ADC runs continuously triggered by TIM4.
     // We just wait for frame completion and send data.
 
-    // Wait for frame to be captured by DMA
-    if (frame_ready) {
-      Send_CCD_Frame_Binary();
-      frame_ready = 0;
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
+    // Block until frame is fully captured by DMA (ESP32-style)
+    // This ensures we ALWAYS have a complete 3694-sample frame
+    while (!frame_ready) {
+      // Spin-wait — hardware timers handle all timing
     }
+
+    Send_CCD_Frame_Binary();
+    frame_ready = 0;
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
 
     /* USER CODE END WHILE */
 
