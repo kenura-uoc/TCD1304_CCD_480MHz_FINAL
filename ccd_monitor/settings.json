@@ -1,9 +1,9 @@
 {
     "enable_savgol": true,
-    "savgol_window": 11,
+    "savgol_window": 51,
     "frame_average": 1,
-    "peak_threshold": 15000,
-    "peak_min_dist": 100,
+    "peak_threshold": 13912.4580078125,
+    "peak_min_dist": 137,
     "last_project": "Default",
     "remove_dummies": false,
     "y_max": 65535,

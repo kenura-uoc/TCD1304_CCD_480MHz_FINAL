@@ -189,6 +189,11 @@ void readCCD(void) {
   // Step 7: ICG goes HIGH (start integration/readout phase)
   ICG_HIGH();
 
+  // Step 8: Reset TIM4 counter to synchronize ADC sampling phase
+  // This ensures every frame's ADC triggers start at the same point
+  // relative to the CCD pixel shift-out, eliminating frame-to-frame flicker
+  TIM4->CNT = 0;
+
   // Re-enable interrupts
   __enable_irq();
 }
