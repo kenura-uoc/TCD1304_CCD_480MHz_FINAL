@@ -129,6 +129,17 @@ static inline void delay4ns(uint32_t count) {
     ;
 }
 
+// Precise millisecond delay using DWT (480MHz CPU clock)
+// Eliminates the +/- 1ms jitter of HAL_Delay which causes flicker
+// 1 ms = 480,000 cycles
+static inline void delay_ms_precise(uint32_t ms) {
+  uint32_t output_cycles = ms * 480000;
+  uint32_t start = DWT->CYCCNT;
+  while ((DWT->CYCCNT - start) < output_cycles) {
+    // Busy wait - allows interrupts but provides precise timing
+  }
+}
+
 // Configure ICG and SH as GPIO outputs (call after MX_GPIO_Init)
 void Configure_BitBang_GPIO(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -369,18 +380,27 @@ int main(void) {
   while (1) {
 
     // ============================================
-    // BIT-BANGING + ONESHOT DMA (REORDERED)
+    // BIT-BANGING + ONESHOT DMA (With Fixed Integration)
     // ============================================
-    // Key: Arm DMA BEFORE triggering CCD readout
-    // This ensures buffer starts at pixel 0 AND no gap
 
-    // Step 1: Arm DMA first (waits for TIM4 triggers)
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
-
-    // Step 2: NOW trigger CCD readout
+    // Step 1: Flush variable integration time (from USB send)
+    // The CCD has been integrating while we were sending data over USB.
+    // That time is variable, so we dump that charge now and ignore it.
     readCCD();
 
-    // Step 3: Block until DMA captures all 3694 samples (ESP32-style)
+    // Step 2: Fixed Integration Time
+    // ensure CONSTANT integration time regardless of USB timing
+    // Using DWT delay for microsecond precision (HAL_Delay has 1ms jitter)
+    delay_ms_precise(integration_time_ms);
+
+    // Step 3: Arm DMA for the REAL capture
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
+
+    // Step 4: Trigger Readout (End of Fixed Integration)
+    // This loads the charge integrated during Step 2 into the shift register
+    readCCD();
+
+    // Step 5: Block until DMA captures all 3694 samples
     while (!frame_ready) {
       // Spin-wait — DMA completion callback sets frame_ready
     }
