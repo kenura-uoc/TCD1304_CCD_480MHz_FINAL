@@ -390,7 +390,9 @@ class CCDApp:
         self.remove_dummies = self.settings.get("remove_dummies")
         self.y_max = self.settings.get("y_max")
         self.integration_time_ms = self.settings.get("integration_time_ms")
-        self.pending_integration_time = None  # For confirmation dialog
+        # FFT Flicker Analysis
+        self.frame_means = []  # Track mean intensity per frame for FFT
+        self.max_fft_frames = 256  # Number of frames to keep for FFT
         
         self.project_mgr.ensure_project(self.settings.get("last_project"))
         self.project_mgr.current_project = self.settings.get("last_project")
@@ -446,39 +448,16 @@ class CCDApp:
         self.receiver.disconnect()
         dpg.set_value("status_txt", "Disconnected")
 
-    def cb_integration_time_change(self, sender, app_data):
-        """Called when integration time slider changes - show confirmation dialog"""
-        new_time = int(app_data)
-        if new_time != self.integration_time_ms:
-            self.pending_integration_time = new_time
-            dpg.configure_item("integration_confirm_win", show=True)
-            dpg.set_value("integration_confirm_txt", 
-                f"Change integration time from {self.integration_time_ms}ms to {new_time}ms?\n\nThis will restart the STM32 timing clocks.")
-    
-    def cb_confirm_integration_change(self):
-        """User confirmed integration time change"""
-        if self.pending_integration_time is not None:
-            old_time = self.integration_time_ms
-            self.integration_time_ms = self.pending_integration_time
-            # Send command to STM32
-            if self.receiver.send_integration_time(self.integration_time_ms):
-                log(f"Integration time changed: {old_time}ms -> {self.integration_time_ms}ms")
-                self.save_settings()
-            else:
-                log("Failed to send integration time (not connected?)", "WARN")
-                # Revert slider to old value
-                dpg.set_value("slider_integration", old_time)
-                self.integration_time_ms = old_time
-            self.pending_integration_time = None
-        dpg.configure_item("integration_confirm_win", show=False)
-    
-    def cb_cancel_integration_change(self):
-        """User cancelled integration time change"""
-        if self.pending_integration_time is not None:
-            # Revert slider to current value
-            dpg.set_value("slider_integration", self.integration_time_ms)
-            self.pending_integration_time = None
-        dpg.configure_item("integration_confirm_win", show=False)
+    def cb_apply_integration_time(self):
+        """Apply button clicked - send integration time to STM32"""
+        new_time = int(dpg.get_value("slider_integration"))
+        old_time = self.integration_time_ms
+        self.integration_time_ms = new_time
+        if self.receiver.send_integration_time(new_time):
+            log(f"Integration time changed: {old_time}ms -> {new_time}ms")
+            self.save_settings()
+        else:
+            log("Failed to send integration time (not connected?)", "WARN")
 
     def cb_create_project(self):
         name = dpg.get_value("new_proj_name")
@@ -623,15 +602,44 @@ class CCDApp:
             if self.show_peaks:
                 px, py = self.peak_detector.find_peaks(display_pixels)
                 if len(px) > 0:
-                    # px are indices into display_pixels. 
-                    # We need to map them to X coordinates
                     px_indices = px.astype(int)
                     px_x_coords = display_x[px_indices]
                     dpg.set_value("series_peaks", [px_x_coords.tolist(), py.tolist()])
                 else:
                     dpg.set_value("series_peaks", [[], []])
-                     
-            dpg.set_value("status_bar", f"FPS: {self.receiver.fps} | Frame: {self.receiver.frame_count} | Mode: {self.project_mgr.current_project}")
+            
+            # 4. FFT Flicker Analysis - track mean intensity per frame
+            frame_mean = float(np.mean(display_pixels))
+            self.frame_means.append(frame_mean)
+            if len(self.frame_means) > self.max_fft_frames:
+                self.frame_means = self.frame_means[-self.max_fft_frames:]
+            
+            # Compute FFT on frame means to find flicker frequency
+            if len(self.frame_means) >= 16:
+                means = np.array(self.frame_means)
+                means_centered = means - np.mean(means)  # Remove DC
+                fft_vals = np.abs(np.fft.rfft(means_centered))
+                freqs = np.fft.rfftfreq(len(means_centered), d=1.0)  # In cycles/frame
+                # Skip DC (index 0)
+                if len(fft_vals) > 1:
+                    fft_vals[0] = 0
+                    peak_idx = np.argmax(fft_vals)
+                    peak_freq = freqs[peak_idx]
+                    peak_power = fft_vals[peak_idx]
+                    
+                    # Update FFT plot if it exists
+                    if dpg.does_item_exist("series_fft"):
+                        dpg.set_value("series_fft", [freqs[1:].tolist(), fft_vals[1:].tolist()])
+                    
+                    fps = max(self.receiver.fps, 1)
+                    flicker_hz = peak_freq * fps
+                    dpg.set_value("status_bar", 
+                        f"FPS: {self.receiver.fps} | Frame: {self.receiver.frame_count} | "
+                        f"Flicker: {flicker_hz:.1f}Hz (power:{peak_power:.0f})")
+                else:
+                    dpg.set_value("status_bar", f"FPS: {self.receiver.fps} | Frame: {self.receiver.frame_count}")
+            else:
+                dpg.set_value("status_bar", f"FPS: {self.receiver.fps} | Frame: {self.receiver.frame_count} | FFT: collecting...")
 
         if self.show_history and self.history_data:
             if self.playback_active:
@@ -699,19 +707,11 @@ class CCDApp:
                             
                             dpg.add_text("Integration Time (ms)")
                             dpg.add_text("Min 15ms (readout), Max 100ms", color=(150, 150, 150))
-                            dpg.add_slider_int(label="##integration", tag="slider_integration",
-                                              default_value=self.integration_time_ms, 
-                                              min_value=15, max_value=100,
-                                              callback=self.cb_integration_time_change, width=-1)
-                            
-                            # Integration time confirmation dialog
-                            with dpg.window(label="Confirm Integration Time Change", modal=True, 
-                                          show=False, tag="integration_confirm_win", 
-                                          width=350, height=120, no_resize=True):
-                                dpg.add_text("", tag="integration_confirm_txt", wrap=330)
-                                with dpg.group(horizontal=True):
-                                    dpg.add_button(label="Confirm", callback=self.cb_confirm_integration_change, width=100)
-                                    dpg.add_button(label="Cancel", callback=self.cb_cancel_integration_change, width=100)
+                            with dpg.group(horizontal=True):
+                                dpg.add_slider_int(label="##integration", tag="slider_integration",
+                                                  default_value=self.integration_time_ms, 
+                                                  min_value=15, max_value=100, width=180)
+                                dpg.add_button(label="Apply", callback=self.cb_apply_integration_time, width=60)
 
                             dpg.add_separator()
                             dpg.add_text("Signal Processing")
@@ -766,6 +766,14 @@ class CCDApp:
                                             callback=lambda s,a: [setattr(self.peak_detector, 'use_smoothing', a), self.save_settings()])
                             dpg.add_slider_int(label="window", default_value=self.peak_detector.smooth_window, max_value=51, 
                                               callback=lambda s,a: [setattr(self.peak_detector, 'smooth_window', a), self.save_settings()])
+                            
+                            dpg.add_separator()
+                            dpg.add_text("Flicker FFT Analysis")
+                            dpg.add_text("Shows frequency of intensity oscillations", color=(150, 150, 150))
+                            with dpg.plot(label="FFT", height=150, width=-1):
+                                dpg.add_plot_axis(dpg.mvXAxis, label="Freq (cycles/frame)", tag="fft_x_axis")
+                                dpg.add_plot_axis(dpg.mvYAxis, label="Power", tag="fft_y_axis")
+                                dpg.add_line_series([], [], label="FFT", parent="fft_y_axis", tag="series_fft")
 
                         # TAB 3: HISTORY
                         with dpg.tab(label="History"):
