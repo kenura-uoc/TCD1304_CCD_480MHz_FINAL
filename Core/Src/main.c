@@ -266,6 +266,7 @@ int main(void) {
   TIM2->EGR = TIM_EGR_UG;
   __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // ICG pulse on PA0
+  HAL_TIM_Base_Start_IT(&htim2); // Enable TIM2 update interrupt for frame sync
 
   // Step 3: Start SH timer (TIM5) - Slave to TIM2, synchronized
   __HAL_TIM_CLEAR_FLAG(&htim5, TIM_FLAG_UPDATE);
@@ -279,8 +280,8 @@ int main(void) {
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC trigger at 250kHz
 
-  // Step 5: Start ADC in Circular DMA mode for continuous acquisition
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
+  // Step 5: ADC DMA will be started by TIM2 update interrupt callback
+  // (first frame starts when TIM2 fires its first update event)
 
   /* USER CODE END 2 */
 
@@ -401,7 +402,8 @@ static void MX_ADC1_Init(void) {
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T4_CC4;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.ConversionDataManagement =
-      ADC_CONVERSIONDATA_DMA_CIRCULAR; // Circular DMA for continuous operation
+      ADC_CONVERSIONDATA_DMA_ONESHOT; // ONESHOT - restarted by TIM2 callback
+                                      // each frame
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -644,8 +646,10 @@ static void MX_TIM5_Init(void) {
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1; // PWM1: HIGH when CNT < CCR
   sConfigOC.Pulse =
-      500; // SH HIGH from ~50 ticks to ~550 ticks (~2µs pulse during ICG LOW)
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH; // SH pulse during ICG LOW
+      500; // SH HIGH for first 500 ticks (~2µs) during ICG LOW period
+           // t2 ≈ 0ns (SH rises with ICG falling) - acceptable for TCD1304
+           // SH goes LOW at tick 500, ICG goes HIGH at tick 600 (t1 = 417ns)
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) {
     Error_Handler();
