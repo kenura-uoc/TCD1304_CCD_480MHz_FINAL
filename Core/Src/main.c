@@ -283,13 +283,13 @@ void Process_USB_Command(uint8_t *buf, uint32_t len) {
       }
     }
 
-    // Clamp to valid range [15, 100] ms
+    // Clamp to valid range [15, 10000] ms
     // Minimum ~15ms to read all 3694 pixels at 250kHz
-    // Maximum 100ms for extended integration
+    // Maximum 10000ms for long-exposure / fluorescence
     if (new_time < 15)
       new_time = 15;
-    if (new_time > 100)
-      new_time = 100;
+    if (new_time > 10000)
+      new_time = 10000;
 
     integration_time_ms = new_time;
   }

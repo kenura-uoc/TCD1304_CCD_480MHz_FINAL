@@ -448,9 +448,44 @@ class CCDApp:
         self.receiver.disconnect()
         dpg.set_value("status_txt", "Disconnected")
 
+    def cb_integration_range_changed(self, sender, app_data):
+        """Range dropdown changed - update slider range or show custom input"""
+        if app_data == "Standard (15-100ms)":
+            dpg.configure_item("slider_integration", min_value=15, max_value=100, show=True)
+            dpg.configure_item("input_custom_integration", show=False)
+            val = dpg.get_value("slider_integration")
+            if val < 15: dpg.set_value("slider_integration", 15)
+            if val > 100: dpg.set_value("slider_integration", 100)
+        elif app_data == "Extended (100-1000ms)":
+            dpg.configure_item("slider_integration", min_value=100, max_value=1000, show=True)
+            dpg.configure_item("input_custom_integration", show=False)
+            val = dpg.get_value("slider_integration")
+            if val < 100: dpg.set_value("slider_integration", 100)
+            if val > 1000: dpg.set_value("slider_integration", 1000)
+        elif app_data == "Custom":
+            dpg.configure_item("slider_integration", show=False)
+            dpg.configure_item("input_custom_integration", show=True)
+
     def cb_apply_integration_time(self):
         """Apply button clicked - send integration time to STM32"""
-        new_time = int(dpg.get_value("slider_integration"))
+        range_mode = dpg.get_value("combo_integration_range")
+        if range_mode == "Custom":
+            try:
+                new_time = int(dpg.get_value("input_custom_integration"))
+            except (ValueError, TypeError):
+                log("Invalid custom integration time value", "WARN")
+                return
+        else:
+            new_time = int(dpg.get_value("slider_integration"))
+        
+        # Clamp to safe range
+        if new_time < 15:
+            new_time = 15
+            log("Clamped to minimum 15ms (readout time)", "WARN")
+        if new_time > 10000:
+            new_time = 10000
+            log("Clamped to maximum 10000ms", "WARN")
+        
         old_time = self.integration_time_ms
         self.integration_time_ms = new_time
         if self.receiver.send_integration_time(new_time):
@@ -462,9 +497,21 @@ class CCDApp:
     def cb_create_project(self):
         name = dpg.get_value("new_proj_name")
         if self.project_mgr.create_project(name):
-            dpg.set_value("cur_proj_txt", f"Project: {name}")
-            self.refresh_history_list()
+            self.refresh_project_list()
+            dpg.set_value("combo_project", name)
+            self.cb_change_project(None, name)
             dpg.configure_item("proj_win", show=False)
+
+    def cb_change_project(self, sender, app_data):
+        if not app_data: return
+        self.project_mgr.ensure_project(app_data)
+        self.project_mgr.current_project = app_data
+        self.refresh_history_list()
+        self.save_settings()
+        
+    def refresh_project_list(self):
+        projects = self.project_mgr.get_projects()
+        dpg.configure_item("combo_project", items=projects)
             
     def cb_record_toggle(self):
         if self.receiver.recording:
@@ -706,12 +753,32 @@ class CCDApp:
                                 dpg.add_button(label="Single Shot", callback=self.receiver.trigger_single_shot)
                             
                             dpg.add_text("Integration Time (ms)")
-                            dpg.add_text("Min 15ms (readout), Max 100ms", color=(150, 150, 150))
-                            with dpg.group(horizontal=True):
-                                dpg.add_slider_int(label="##integration", tag="slider_integration",
-                                                  default_value=self.integration_time_ms, 
-                                                  min_value=15, max_value=100, width=180)
-                                dpg.add_button(label="Apply", callback=self.cb_apply_integration_time, width=60)
+                            # Determine initial range mode from saved value
+                            init_val = self.integration_time_ms
+                            if init_val <= 100:
+                                init_range = "Standard (15-100ms)"
+                                init_slider_min, init_slider_max = 15, 100
+                                show_slider, show_custom = True, False
+                            elif init_val <= 1000:
+                                init_range = "Extended (100-1000ms)"
+                                init_slider_min, init_slider_max = 100, 1000
+                                show_slider, show_custom = True, False
+                            else:
+                                init_range = "Custom"
+                                init_slider_min, init_slider_max = 15, 100
+                                show_slider, show_custom = False, True
+                            
+                            dpg.add_combo(["Standard (15-100ms)", "Extended (100-1000ms)", "Custom"],
+                                         tag="combo_integration_range", default_value=init_range,
+                                         callback=self.cb_integration_range_changed, width=-1)
+                            dpg.add_slider_int(label="##integration", tag="slider_integration",
+                                              default_value=init_val, 
+                                              min_value=init_slider_min, max_value=init_slider_max, width=-60,
+                                              show=show_slider)
+                            dpg.add_input_int(label="##custom_int", tag="input_custom_integration",
+                                            default_value=init_val, min_value=15, min_clamped=True,
+                                            width=-60, show=show_custom)
+                            dpg.add_button(label="Apply", callback=self.cb_apply_integration_time, width=-1)
 
                             dpg.add_separator()
                             dpg.add_text("Signal Processing")
@@ -730,7 +797,10 @@ class CCDApp:
                             
                             dpg.add_separator()
                             dpg.add_text("Recording")
-                            dpg.add_text(f"Project: {self.project_mgr.current_project}", tag="cur_proj_txt")
+                            dpg.add_text("Project")
+                            dpg.add_combo(self.project_mgr.get_projects(), tag="combo_project", 
+                                         default_value=self.project_mgr.current_project,
+                                         callback=self.cb_change_project, width=-1)
                             
                             with dpg.window(label="New Project", modal=True, show=False, tag="proj_win", width=200, height=100):
                                 dpg.add_input_text(tag="new_proj_name", hint="Project Name")
