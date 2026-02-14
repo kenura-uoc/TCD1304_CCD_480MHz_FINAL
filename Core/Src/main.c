@@ -369,10 +369,7 @@ int main(void) {
   // --- ESP32-STYLE BIT-BANGING INITIALIZATION ---
   HAL_Delay(1000); // Wait for USB
 
-  // Enable DWT cycle counter for precise nanosecond delays
   Enable_DWT_Counter();
-
-  // Configure PA0 (ICG) and PA2 (SH) as GPIO outputs
   Configure_BitBang_GPIO();
 
   // ADC Calibration (CCD)
@@ -390,24 +387,16 @@ int main(void) {
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
 
-  // NOTE: TIM2 (ICG) and TIM5 (SH) are NOT started - bit-banged via GPIO
-
   // --- LASER PWM INIT ---
-  // TIM15 CH1 = 404nm laser (PE5), CH2 = 450nm laser (PE6)
-  // 100kHz PWM, duty 0-2399
-  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1); // Start with duty=0 (OFF)
+  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
-
-  // --- LCD INIT ---
-  // I2C LCD at address 0x27 (try 0x3F if blank), 16x2
-  LCD_Init(&lcd, &hi2c1, 0x27, 16, 2);
-  LCD_SetCursor(&lcd, 0, 0);
-  LCD_Print(&lcd, "404nm:   0%");
-  LCD_SetCursor(&lcd, 0, 1);
-  LCD_Print(&lcd, "450nm:   0%");
 
   // --- ADC3 Calibration (Potentiometers) ---
   HAL_ADCEx_Calibration_Start(&hadc3, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
+
+  // --- LCD & Menu Init ---
+  LCD_Init(&lcd, &hi2c1, 0x27, 16, 2);
+  Menu_Init(&menu_ctx, &lcd);
 
   /* USER CODE END 2 */
 
@@ -415,90 +404,46 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
   while (1) {
 
-    // ============================================
-    // BIT-BANGING + ONESHOT DMA (With Fixed Integration)
-    // ============================================
+    // --- Button Polling ---
+    Buttons_Update();
 
-    // Step 1: Flush variable integration time (from USB send)
-    // The CCD has been integrating while we were sending data over USB.
-    // That time is variable, so we dump that charge now and ignore it.
-    readCCD();
+    // --- Menu State Machine ---
+    // Returns 1 if CCD acquisition should run, 0 otherwise
+    uint8_t run_ccd = Menu_Update(&menu_ctx, &lcd);
 
-    // Step 2: Fixed Integration Time
-    // ensure CONSTANT integration time regardless of USB timing
-    // Using DWT delay for microsecond precision (HAL_Delay has 1ms jitter)
-    delay_ms_precise(integration_time_ms);
+    if (run_ccd) {
+      // ============================================
+      // CCD ACQUISITION (only when Run CCD app is active)
+      // ============================================
 
-    // Step 3: Arm DMA for the REAL capture
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
+      // Step 1: Flush variable integration
+      readCCD();
 
-    // Step 4: Trigger Readout (End of Fixed Integration)
-    // This loads the charge integrated during Step 2 into the shift register
-    readCCD();
+      // Step 2: Fixed Integration Time
+      delay_ms_precise(integration_time_ms);
 
-    // Step 5: Block until DMA captures all 3694 samples
-    while (!frame_ready) {
-      // Spin-wait — DMA completion callback sets frame_ready
-    }
+      // Step 3: Arm DMA
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
 
-    // Step 4: Stop DMA (ONESHOT complete)
-    HAL_ADC_Stop_DMA(&hadc1);
+      // Step 4: Trigger Readout
+      readCCD();
 
-    // Step 5: Send frame
-    Send_CCD_Frame_Binary();
-    frame_ready = 0;
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
-
-    // ============================================
-    // LASER CONTROL (runs AFTER CCD acquisition)
-    // ============================================
-    // Read both pots via ADC3 scan mode (2 channels)
-    HAL_ADC_Start(&hadc3);
-
-    // Read pot 1 (PC0 → ADC3 CH10 → 404nm laser)
-    HAL_ADC_PollForConversion(&hadc3, 10);
-    uint32_t pot1_raw = HAL_ADC_GetValue(&hadc3); // 0-4095 (12-bit)
-
-    // Read pot 2 (PC1 → ADC3 CH11 → 450nm laser)
-    HAL_ADC_PollForConversion(&hadc3, 10);
-    uint32_t pot2_raw = HAL_ADC_GetValue(&hadc3); // 0-4095 (12-bit)
-
-    HAL_ADC_Stop(&hadc3);
-
-    // Map pot values to PWM duty (0-4095 → 0-2399)
-    uint32_t pwm1 = (pot1_raw * LASER_PWM_MAX) / 4095;
-    uint32_t pwm2 = (pot2_raw * LASER_PWM_MAX) / 4095;
-
-    // Set laser PWM duty cycles
-    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, pwm1);
-    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, pwm2);
-
-    // Update LCD (every ~10 frames to avoid I2C overhead)
-    lcd_update_counter++;
-    if (lcd_update_counter >= 10) {
-      lcd_update_counter = 0;
-
-      int pct1 = (pot1_raw * 100) / 4095;
-      int pct2 = (pot2_raw * 100) / 4095;
-
-      char buf[8];
-
-      if (pct1 != prev_pct1) {
-        LCD_SetCursor(&lcd, 6, 0);
-        LCD_Print(&lcd, "      "); // Clear old
-        LCD_SetCursor(&lcd, 6, 0);
-        snprintf(buf, sizeof(buf), "%3d%%", pct1);
-        LCD_Print(&lcd, buf);
-        prev_pct1 = pct1;
+      // Step 5: Wait for DMA
+      while (!frame_ready) { /* spin */
       }
 
-      if (pct2 != prev_pct2) {
-        LCD_SetCursor(&lcd, 6, 1);
-        LCD_Print(&lcd, "      "); // Clear old
-        LCD_SetCursor(&lcd, 6, 1);
-        snprintf(buf, sizeof(buf), "%3d%%", pct2);
-        LCD_Print(&lcd, buf);
-        prev_pct2 = pct2;
+      // Step 6: Stop DMA
+      HAL_ADC_Stop_DMA(&hadc1);
+
+      // Step 7: Send frame over USB
+      Send_CCD_Frame_Binary();
+      frame_ready = 0;
+      frame_counter++;
+      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+
+      // Step 8: Update LCD frame counter (every 10 frames)
+      if ((frame_counter % 10) == 0) {
+        Menu_CCD_FrameUpdate(&menu_ctx, &lcd, frame_counter);
       }
     }
 
@@ -1070,6 +1015,7 @@ static void MX_DMA_Init(void) {
  * @retval None
  */
 static void MX_GPIO_Init(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -1081,6 +1027,14 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pins : BTN_UP_Pin BTN_DOWN_Pin BTN_OK_Pin BTN_LEFT_Pin
+                           BTN_RIGHT_Pin */
+  GPIO_InitStruct.Pin =
+      BTN_UP_Pin | BTN_DOWN_Pin | BTN_OK_Pin | BTN_LEFT_Pin | BTN_RIGHT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1099,16 +1053,15 @@ void MPU_Config(void) {
   /* Disables the MPU */
   HAL_MPU_Disable();
 
-  /** Region 0: SRAM3 (D2 RAM) - Non-cacheable for DMA coherency
-   *  Buffer_A lives here, DMA writes directly, CPU must see fresh data
+  /** Initializes and configures the Region and the memory to be protected
    */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.BaseAddress = 0x30000000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
-  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.BaseAddress = 0x0;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.SubRegionDisable = 0x87;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
