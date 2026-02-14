@@ -1,0 +1,955 @@
+This article was downloaded by:[HEAL- Link Consortium]
+[HEAL- Link Consortium]
+On: 21 June 2007
+Access Details: [subscription number 772810551]
+Publisher: Taylor & Francis
+Informa Ltd Registered in England and Wales Registered Number: 1072954
+Registered office: Mortimer House, 37-41 Mortimer Street, London W1T 3JH, UK
+Chemical Engineering
+CommunicationsPublication details, including instructions for authors and subscription information:
+http://www.informaworld.com/smpp/title~content=t713454788
+COMPUTER-AIDED ESTIMATION OF ACETONE,
+METHYL ACETATE, AND CHLOROFORM DIFFUSION
+COEFFICIENTS IN POLY(VINYL ACETATE)
+G. D. Verros a; S. Papahristou b; J. Prinos b; N. A. Malamataris c
+a Department of Informatics and Computer Technology, Technological Educational
+Institute (T.E.I.) of Lamia, Lamia, Greece.b Department of Chemical Engineering, Aristotle University of Thessaloniki,
+Thessaloniki, Greece.c Department of Mechanical and Industrial Engineering, University of Thessaly,
+Volos, Greece.
+To cite this Article: Verros, G. D., Papahristou, S., Prinos, J. and Malamataris, N. A. , 'COMPUTER-AIDED ESTIMATION
+OF ACETONE, METHYL ACETATE, AND CHLOROFORM DIFFUSION COEFFICIENTS IN POLY(VINYL ACETATE)',
+Chemical Engineering Communications, 190:3, 334 - 359
+To link to this article: DOI: 10.1080/00986440302134
+URL: http://dx.doi.org/10.1080/00986440302134
+PLEASE SCROLL DOWN FOR ARTICLE
+Full terms and conditions of use: http://www.informaworld.com/terms-and-conditions-of-access.pdf
+This article maybe used for research, teaching and private study purposes. Any substantial or systematic reproduction,
+re-distribution, re-selling, loan or sub-licensing, systematic supply or distribution in any form to anyone is expressly
+forbidden.
+The publisher does not give any warranty express or implied or make any representation that the contents will be
+complete or accurate or up to date. The accuracy of any instructions, formulae and drug doses should be
+independently verified with primary sources. The publisher shall not be liable for any loss, actions, claims, proceedings,
+demand or costs or damages whatsoever or howsoever caused arising directly or indirectly in connection with or
+arising out of the use of this material.
+© Taylor and Francis 2007
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+COMPUTER-AIDED ESTIMATION OF ACETONE,
+ME THYL ACE TATE, AND CHLOROFORM DIFFUSION
+COEFFICIENTS IN POLY(VINYL ACETATE)
+G. D. VERROS
+Department of Informatics and Computer T echnology ,
+T echnological Educational Institute (T .E.I. ) of Lamia,
+Lamia, Greece
+S. PAPAHRISTOU
+J. PRINOS
+Department of Chemical Engineering,
+Aristotle University of Thessaloniki,
+Thessaloniki, Greece
+N. A. MAL AMATARIS
+Department of Mechanical and Industrial Engineering,
+University of Thessaly,V olos, Greece
+The diffusion coefﬁcients of acetone, methyl acetate, and chloroform in
+amorphous poly(vinyl acetate) are estimated using the solvent evaporation
+method. The evaporation process from polymer solutions, cast in the form of
+thin ﬁlms, is studied as a numerical experiment. The process is modeled as a
+coupled heat and mass transfer problem with a moving boundary. Lattice
+ﬂuid (LF) thermodynamics is used to describe polymer-solvent system volu-
+metric properties and to derive appropriate expressions for solvents’ chemical
+potentials. The resulting nonlinear system of governing equations is solved
+with the Galerkin ﬁnite element method. The estimated diffusion coefﬁcients
+are in satisfactory agreement with reported data.
+Address correspondence to G. D. Verros, P.O. Box 454, Plagiari, GR-57500 Epanomi,
+Greece. E-mail: verros@vergina.eng.auth.gr
+Chem. Eng. Comm., 1 90: 334/C0 359, 2003
+Copyright# 2003 T aylor & Francis
+0098-6445/03 $1 2.00 + .00
+DOI: 1 0. 1 080/009864403901 79262
+334
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Keywords: Diffusion coefﬁcients; Poly(vinyl acetate); Solvent evaporation;
+Moving boundary; Finite element method
+INTRODUCTION
+The binary diffusion coefﬁcient in solvent-polymer systems is of major
+importance for a number of industrial processes, including membrane,
+foam, and coating formation, devolatilization, mixing of additives and
+plasticizers, and effectiveness of polymerization reactors at high conver-
+sion. In addition, the diffusion of small molecules in a polymer matrix is
+essential for miscellaneous polymer products such as controlled drug
+delivery systems, barrier materials, and membranes for separation
+(Zielinski and Duda, 1996).
+The industrial importance of diffusion coefﬁcients in polymer sys-
+tems has led to extensive work in their measurement and estimation.
+Measurement techniques include sorption and desorption, radiotracer
+methods, chromatography, and nuclear magnetic resonance (NMR)
+experiments as reviewed by Crank and Park (1968), Tyrrell and Harris
+(1984), and Cussler (1984). Predictive models based on the free volume
+concepts may be used for the estimation of polymer-solvent diffusion
+coefﬁcients, as developed by Ju et al. (1981a), Zielinski and Duda (1992),
+and Vrentas et al. (1996).
+The experimental complexities in the measurement of diffusion
+coefﬁcients and the need for increased accuracy in their estimation was
+the starting point for the development of the solvent evaporation method.
+This method combines simple laboratory experiments with advanced
+modeling in order to get accurate estimates of the diffusion coefﬁcients.
+In particular, the laboratory experiments consist of gravimetric mea-
+surement of the solvent evaporation rate from appropriate cast polymer-
+solvent ﬁlms. The measured solvent evaporation rate is compared with
+model predictions in order to estimate the unknown parameters of dif-
+fusion coefﬁcient correlation based on free volume theory.
+This idea was proposed by Ataka and Sasaki (1982). However, the
+implementation of powerful numerical methods such as Galerkin ﬁnite
+elements allowed its realization by studying the solvent evaporation process
+in the general framework of computational transport phenomena. Price
+et al. (1997) were the ﬁrst who got estimates of the diffusion coefﬁcients
+by ﬁtting drying rate in order to optimize the performance of industrial
+dryers. Recently, Verros and Malamataris (1999) estimated the binary
+and the self-diffusion coefﬁcient of an acetone-cellulose acetate system by
+using established gravimetric measurements of the acetone evaporation
+rate. The evaporation process was studied as a one-dimensional numer-
+ical experiment utilizing the Galerkin ﬁnite element method. The numeri-
+cal technique provides simultaneous solution of the model equations and
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 335
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+yields, by comparison with gravimetric data, the diffusion coefﬁcients of
+acetone in cellulose acetate over a wide range of temperature and com-
+position. The estimated diffusion coefﬁcients based on free volume theory
+were in satisfactory agreement with experimental data of Park (1961),
+Anderson and Ullman (1973), Reuvers and Smolders (1987), and Sano-
+poulou et al. (1995).
+In the present work, the solvent evaporation method is applied to
+estimate the diffusion coefﬁcients of three liquid solvents, namely, acet-
+one, methyl acetate, and chloroform in poly(vinyl acetate) (PVAC).
+Despite their importance, little is known about these diffusion coefﬁ-
+cients. Kokes et al. (1952) and Ju et al. (1981b) performed sorption
+experiments to measure binary diffusion coefﬁcients of acetone in PVAC
+and chloroform in PVAC, respectively. Arnould and Laurence (1992)
+utilized capillary column inverse gas chromatography to measure the
+gaseous acetone and methyl acetate diffusion coefﬁcient in PVAC at the
+limit of pure polymer. However, diffusion of these solvents over a wide
+range of temperature and concentration has not been studied yet, due to
+the complexity of experimental methods and modeling techniques. Lat-
+tice ﬂuid thermodynamics is used for the ﬁrst time in this area as it is
+simple and accurate in describing polymer-solvent interactions as shown
+by Sanchez and Lacombe (1976a, 1976b), and Panayiotou and Sanchez
+(1991).
+In the next section, a brief description of the experimental part is
+given and the experimental procedures for preparing solvent-polymer
+thin ﬁlms and measuring evaporation rate are described. In the modeling
+section, the governing equations of the solvent evaporation process are
+given along with the appropriate initial and boundary conditions. Lattice
+ﬂuid thermodynamics is introduced in the section on model parameters to
+describe polymer-solvent interactions. Finally, the ﬁnite element for-
+mulation is given, results are presented, and conclusions are drawn.
+EXPERIM ENT AL P ART
+The aim of this work is to determine the diffusion coefﬁcients of various
+solvents in amorphous PVAC by comparing the measured evaporation
+rate with model predictions. The evaporation rate from PVAC solutions
+cast in the form of thin ﬁlms was measured gravimetrically, and for this
+purpose an experimental procedure has been designed, as shown in
+Figure 1.
+The PVAC used was purchased from BDH Chemicals Ltd. (weight-
+average molecular weight 51,000). The prepared solutions were cast
+in thicknesses in the range of 180 /C0 240 mm on clean glass slides
+(1 /C6 0.01 mm /C2 70 mm /C2 50 mm) with the aid of a ‘‘doctor’s knife.’’ To
+measure the solvent evaporation rate gravimetrically, the cast liquid ﬁlms
+336 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+(after their preparation) were transferred to a microbalance (accuracy
+10/C0 4 gr), which was connected to a personal computer for data acquisi-
+tion (three measurements per second). To prevent heat exchange between
+the glass slides and the microbalance pan, the glass slides were placed on
+an insulating block resting upon the microbalance pan (Figure 1). The
+microbalance was exposed to the ambient air, so that accumulation of
+solvent vapor in the vicinity of the equipment was avoided and zero
+solvent concentration in the bulk of gas phase was ensured.
+It was found convenient to express the measured evaporation rate in
+terms of instantaneous solvent/polymer mass ratio because, in this way,
+the experimental results are presented uniformly. To determine polymer
+mass, the ﬁlms were dried for several hours in an oven at 80
+/C14C after the
+evaporation rate measurement, until a constant weight was obtained.
+MODELING OF SOLVENT EVAPORATION PROCESS
+Governing Equations and Boundary Conditions
+The system consists of a liquid layer resting upon an impermeable solid
+support exposed to a gas phase of temperature T0, as shown in Figure 1.
+The liquid layer is the PVAC solution and has an initial thickness L0.The
+Figure 1. Schematic representation of the experimental setup for solvent evaporation
+measurement.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 337
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+support is a ﬂat, horizontal glass plate with constant thickness Lsup,
+allowing heat exchange with the polymer solution. Prior to time zero, the
+polymer solution has a constant initial solvent concentration everywhere
+in its mass and the whole system is at initial temperature T0. At time t ¼ 0,
+a liquid-gas interface is suddenly created by exposing the polymer solu-
+tion to the gas phase. The solvent begins to evaporate, resulting in a
+downward motion of the liquid-gas interface. As the solvent at the sur-
+face evaporates, the gas-liquid interface is cooled. From an engineering
+point of view, this is a coupled heat and mass transfer process with a
+moving boundary.
+Assuming one-dimensional Fickian diffusion, which is valid as it was
+shown by numerous workers in the area (Shojaie et al., 1992; Vrentas and
+Vrentas, 1994; Cairncross et al., 1995; Guerrier et al., 1998; Alsoy and
+Duda, 1999; Verros and Malamataris, 2001a), the governing equations
+are:
+@r1
+@t ¼ @
+@z D @r1
+@z
+/C18/C19
+0 < z < LðtÞð 1Þ
+rsCp
+@T
+@t ¼ @
+@z k @T
+@z
+/C18/C19
+0 < z < LðtÞð 2Þ
+@Tsup
+@t ¼ asup
+@2Tsup
+@z2 asup ¼ ksup=rsupCpsup /C0 Lsup < z < 0 ð3Þ
+The appropriate initial and boundary for the above equations are:
+Initial and Boundary Conditions for the Diffusion Equation.
+r1 ¼ r10 t ¼ 0 ð4Þ
+D@r1=@z ¼/C0 kGPðxs /C0 xgÞ z ¼ LðtÞð 5Þ
+@r1=@z ¼ 0 z ¼ 0 ð6Þ
+Equation (5) is the mass balance at the moving interface and Equation (6)
+speciﬁes zero mass ﬂux at the glass plate.
+Initial and Boundary Conditions for the Energy Equations.
+T ¼ Tsup ¼ T0 t ¼ 0 ð7Þ
+338 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+k @T=@z ¼ hðTg /C0 TsÞþ esðT 4
+1 /C0 T 4
+s Þ/C0ð DHÞkGPðxs /C0 xgÞ z ¼ LðtÞð 8Þ
+ksup @Tsup=@z ¼ k@T=@zz ¼ 0 ð9Þ
+@Tsup=@z ¼ 0 z ¼/C0 Lsub ð10Þ
+Equation (8) is the energy balance at the moving interface, equating the
+heat conduction to the polymer solution with free convection heat
+transfer, radiant heat transfer from the ambient air, and latent heat loss
+due to solvent evaporation. Equation (9) implies continuity of tempera-
+ture and heat ﬂux at the glass plate-polymer solution interface, while
+Equation (10) implies perfect insulation of the glass support lower surface.
+Conservation of polymer mass gives the following equation for the
+instantaneous liquid layer thickness, L(t), deﬁning the position of the
+moving boundary (Vrentas and Vrentas, 1994; Verros and Malamataris,
+2001b):
+r
+2dL=dt ¼ð DV1=V2Þð@r1=@z jz¼LðtÞÞð 11Þ
+where r2 represents PVAC mass concentration and V 1 and V 2 are the
+partial speciﬁc volumes of the solvent and PVAC, respectively.
+To facilitate numerical solution of the problem, the above equations
+are rendered dimensionless. After dedimensionalizing mass concentration
+r, temperature T, and thickness of the solution L with initial solvent
+concentration o10, and initial temperature of the process T 0 and initial
+thickness of the solution L 0, the dimensionless equations deﬁning the
+evaporation model become:
+Diffusion and Energy Equations.
+C1
+@o1
+@t ¼ @
+@Z C1C2
+@o1
+@Z
+/C18/C19
+; C1 ¼ rs þ o1
+@rs
+@o1
+/C18/C19
+; C2 ¼ D=D0
+0 < Z < s ð12Þ
+C3
+@Y
+@t ¼ @
+@Z C4
+@Y
+@Z
+/C18/C19
+; C3 ¼ rCp=r0Cp0; C4 ¼ k=D0r0Cp0
+0 < Z < s ð13Þ
+@Ysup
+@t ¼ C5
+@2Ysup
+@Z2 ; C5 ¼ asup=D0; /C0 Lsup=L0 < Z < 0 ð14Þ
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 339
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Initial and Boundary Conditions for the Diffusion Equation.
+o1 ¼ o10 t ¼ 0 ð15Þ
+C2@ðrso1Þ=@Z ¼ C2C1@o1=@Z ¼ C6ðxs /C0 xgÞ;
+C6 ¼/C0 L0KGP=D0 Z ¼ s ð16Þ
+@o1=@Z ¼ 0 Z ¼ 0 ð17Þ
+Initial and Boundary Conditions for the Energy Equations.
+Y ¼ Ysup ¼ 1 t ¼ 0 ð18Þ
+C4@Y=@Z ¼ C7ðY /C0 1Þþ C8ð1 /C0 Y4
+s Þ/C0 C9ðxS /C0 xgÞ; C7 ¼ L0h=D0r0Cp0
+C8 ¼ L0esT3
+0=D0r0Cp0; C9 ¼ð DHÞkGPL0=ðT0D0r0Cp0Þ Z ¼ s
+ð19Þ
+@Ysup=@Z ¼ C10@Y=@Z; C10 ¼ k=ksup Z ¼ 0 ð20Þ
+@Ysup=@Z ¼ 0 Z ¼/C0 Lsup=L0 ð21Þ
+Moving Boundary Equation.By substituting Equation (5) in Equation
+(11) and dedimensionalizing we obtain:
+rsð1 /C0 o1Þds=dt ¼ C6ðxs /C0 xgÞV1=V2 ð22Þ
+where o1 ¼ r1=rs is solvent weight fraction, rs is polymer solution
+density, Z ¼ z=L0 is dimensionless space coordinate, t ¼ D0t=L2
+0 is
+dimensionless time, Y ¼ T=T0 is dimensionless temperature, and
+s ¼ LðtÞ=L0 is dimensionless position of the moving boundary.
+Model Parameters
+Thermophysical Properties of the Polymer Solution and the Glass Sub-
+strate. The polymer solution density and the solvent chemical potential
+were calculated using the lattice ﬂuid theory (Sanchez and Lacombe,
+1976a, 1976b). According to this theory, reduced density ~r is given as a
+function of reduced pressure ~P and reduced temperature ~T by the fol-
+lowing equation of state:
+~r2 þ ~P þ ~Tl n 1 /C0 ~rðÞ þ 1 /C0 1
+r
+/C18/C19
+~r
+/C20/C21
+¼ 0 ð23Þ
+340 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+where ~T /C17T=Tm/C3 /C17RT=em/C3 , ~P /C17P=Pm/C3 /C17Pvm/C3 =em/C3 ,a n d ~r /C17rs=rm
+/C3 .
+Parameters, em/C3 , nm/C3 ,a n d rm
+/C3 , for a binary solution are given by the
+following mixing rules:
+em
+/C3 ¼
+X2
+i¼1
+X2
+i¼1
+jijjeij; e12 ¼ z ﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃe11e22
+p ; eii ¼ RT /C3
+i i ¼ 1; 2 ð24Þ
+vm
+/C3 ¼
+X2
+i¼1
+jivi
+/C3 ; vi
+/C3 ¼ eii=P/C3
+i i ¼ 1; 2 ð25Þ
+1
+rm/C3 ¼
+X2
+i¼1
+oi
+ri/C3 ð26Þ
+The segment fraction jl is deﬁned by
+ji ¼ xiri=r; r ¼
+X2
+i¼1
+xiri; ri ¼ MP/C3
+i =r/C3
+i RT /C3
+i i ¼ 1; 2 ð27Þ
+where z is a dimensionless binary parameter expected to have values close
+to unity, x i is the mole fraction of the ith compound, M is molecular
+weight, and T /C3
+i ; P/C3
+i , and r/C3
+i are characteristic constants for a compound.
+Equations (23)/C0 (27) are solved simultaneously by an iterative procedure.
+In the above equations the ﬁnal unknown parameters are quantities
+T
+/C3
+i ; P/C3
+i ; r/C3
+i , and z (see Equations (24) /C0 (27)). The T /C3
+i ; P/C3
+i , and r/C3
+i para-
+meters for solvents and PVAC are summarized in Table I. The solvent
+chemical potential is equal to:
+m
+LF=RT ¼ ln j1 þð 1 /C0 r1=r2Þþ r1 ~rX12
+þ r1
+/C0 ~r
+~T1
+þ
+~P1~u
+~T1
+þð ~u /C0 1Þ lnð1 /C0 ~rÞþ ln ~r
+r1
+/C26/C27
+ð28Þ
+Table I Lattice Fluid Equation of State Parameters (Sanchez and Panayiotou, 1994)
+T* (K) P* (MPa) r* (kg/m 3)
+Acetone 484 533 917
+Methyl acetate 468 517 1094
+Chloroform 512 456 1688
+PVAC 590 509 1283
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 341
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+where parameter X 12 is:
+X12 ¼ð e11 þ e22 þ 2e12Þ=RT ð29Þ
+The pure solvent chemical potential is given as follows:
+m0
+LF=RT ¼ r1
+/C0 ~r1
+~T1
+þ
+~P1~u1
+~T1
+þð ~u1 /C0 1Þ lnð1 /C0 ~r1Þþ ln ~r1
+r1
+/C26/C27
+ð30Þ
+The z parameter for the PVAC-acetone system was equal to unity, as
+shown by Luengo et al. (1994). Similarly, for the PVAC-methyl acetate
+system, z was found equal to 1.012 by comparing the Flory-Huggins
+chemical potential with the lattice ﬂuid chemical potential Equations
+(28)/C0 (30). Finally, the z parameter for the PVAC-chloroform system was
+found equal to 1.023 by ﬁtting the activity coefﬁcients as determined by
+sorption equilibrium experiments (Ju et al., 1981b). Introducing the effect
+of hydrogen bonding between chloroform and PVAC and applying lat-
+tice ﬂuid with hydrogen bonding thermodynamics yields a z value closer
+to unity. A detailed presentation of the lattice ﬂuid with hydrogen
+bonding theory is given by Panayiotou and Sanchez (1991).
+The main advantage of lattice ﬂuid thermodynamics over the Flory-
+Huggins theory is the introduction of an accurate equation of state
+describing variation of polymer density with constituents’ concentration
+and temperature, including mixing phenomena (Sanchez and Lacombe,
+1976a, 1976b). Additionally, this theory describes chemical potential
+variation with temperature and concentration more accurately than the
+Flory-Huggins theory. From a modeling point of view, lattice ﬂuid theory
+is more attractive even in the case when there is a lack of experimental
+data for the density dependence on concentration and temperature.
+The speciﬁc heat capacity and the thermal conductivity of the
+polymer solution were calculated from pure substance data by the fol-
+lowing simple mixing rule:
+P ¼ P
+1o1 þ P2ð1 /C0 o1Þð 31Þ
+where P is property of the solution, o1 is weight fraction of the solvent,
+and P1 and P2 denote corresponding property of the solvent and PVAC,
+respectively.
+The thermophysical properties of pure liquid solvents, PVAC, and
+glass support are given in standard references.
+The Diffusion Coefficient of Solvent in PVAC.According to Crank (1975)
+the binary diffusion coefﬁcient, D, is related in terms of self-diffusion
+342 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+coefﬁcient, D/C3 , and thermodynamic properties by the following expres-
+sion:
+D ¼ D/C3 r1
+RT
+@Dm1
+@r1
+/C18/C19
+; Dm1 ¼ mLF /C0 m0
+LF ð32Þ
+where r1 and m1 are mass concentration and chemical potential of the
+solvent, respectively. From Equations (28) /C0 (30) the derivative of solvent
+chemical potential with respect to the solvent mass concentration is
+directly calculated.
+In the present work, we utilize the Vrentas and Duda (1977a, 1977b)
+equation for self-diffusion coefﬁcient that includes concentration and
+temperature dependence of diffusion coefﬁcient. According to the free
+volume diffusion model developed by Vrentas and Duda, solvent self-
+diffusion coefﬁcient in a polymer solution, D
+/C3 , is given as follows:
+D/C3 ¼D0 exp /C0 E
+RT
+/C18/C19
+exp /C0ð o1V/C3
+1 þð1/C0 o1ÞxV/C3
+2Þ
+o1
+K11
+g
+/C16/C17
+ðK21 /C0 Tg1 þTÞþð 1/C0 o1Þ K12
+g
+/C16/C17
+ðK22 /C0 Tg2 þTÞ
+0
+@
+1
+A ð33Þ
+Here, subscripts 1 and 2 refer to solvent and PVAC, respectively. D0 is a
+pre-exponential factor, E is the critical energy that a molecule must
+possess to overcome the attractive forces holding to its neighbors, and g is
+an overlap factor that is introduced because the same free volume is
+available to more than one molecule. V
+/C3
+i is speciﬁc hole free volume of the
+ith component required for a diffusion jump, and x represents the ratio of
+the critical molar volume of the jumping unit of solvent to that of
+polymer. K11 and K21 are free volume parameters for solvent while K12
+and K22 are those for polymer. Tgi is glass transition temperature of ith
+component. The free volume parameters for solvents and PVAC are
+given in Table II.
+Heat and Mass T ransfer Coefficients.The heat transfer coefﬁcient, h,i s
+calculated by an empirical correlation (Perry and Green, 1984) for heat
+transfer under free convention conditions to a cooled, horizontal square
+plate, facing upward:
+hw
+Kf ¼ 0:54 Gr PrðÞ 0:25 ð34Þ
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 343
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+The mass transfer coefﬁcient, kG, is calculated from the above corre-
+lation by invoking a heat and mass transfer analogy and using a
+correction term for high ﬂuxes, obtained from ﬁlm theory (Bird et al.,
+1960):
+k
+G ¼ 0:54ðGr Sc Þ0:25 cD f
+w
+/C18/C19 Ms
+Pðxs /C0 xgÞ ln 1 /C0 xg
+1 /C0 xs
+/C18/C19
+ð35Þ
+where w is width of the plate, c is overall molar density, and M s denotes
+molecular weight of solvent. Kf and Df represent thermal conductivity of
+the gas phase and binary diffusion coefﬁcient of solvent vapor in air,
+respectively. Superscript ‘‘f’’ represents properties evaluated at ‘‘mean gas
+phase temperature’’ T
+f ¼ð Ts þ TgÞ=2 and ‘‘mean solvent vapor mole
+fraction’’ xf ¼ð xs þ xgÞ=2, with Tg ¼ T0.
+Gr; Pr, and Sc represent Grashof, Prandtl, and Schmidt numbers of
+gas phase, respectively. These numbers have their standard deﬁnitions.
+Data for thermophysical properties of solvent vapor and air are available
+in standard references (Dean, 1973; VDI, 1974; Perry and Green, 1984).
+As shown by Verros and Malamataris (1999; 2001b), these correlations
+for heat and mass transfer accurately reproduce experimental results for
+temperature at the gas-liquid interface.
+The solvent mole fraction at interface, x
+s, can be written in terms of
+its chemical potential ( Dm1=RT) as:
+xs ¼ eDm1 =RTPsat
+1 =P ð36Þ
+where Psat
+1 is pure solvent vapor pressure calculated by an Antoine’s
+equation (Dean, 1973).
+Table II Solvent and Polymer Free Volume Parameters (Hong, 1995)
+A. Solvents
+V1
+* /C2 103
+(m3/kg)
+(k11/g) /C2 106
+(m3/kg K)
+K21-Tg1
+(K)
+D0 /C2 108
+(m2/s)
+E
+(J/gmol)
+Acetone 0.943 1.86 7 53.33 3.6 0
+Methyl acetate 0.855 1.25 7 38.5 5.23 0
+Chloroform 0.51 0.71 7 29.43 4.07 0
+B. Polymer V 2
+* /C2 103
+(m3/kg)
+(k12/g) /C2 107
+(m3/kg K)
+K22-Tg2
+(K)
+PVAC 0.728 4.33 7 258.2
+344 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Finite Element Formulation
+The resulting system of governing equations (Equations (12) /C0 (14))
+augmented by the moving boundary equation (Equation (22)) along the
+initial and boundary conditions is solved with Galerkin ﬁnite elements.
+According to this method, the ﬁnal formulation of weighted residuals
+(after expanding the unknown variables in quadratic basis functions,
+introducing convective terms in the governing equations due to the
+transformation of partial to total time derivatives and applying diver-
+gence theorem) becomes:
+R
+i
+M ¼
+Z s
+0
+C1
+do1
+dt ji /C0 dZ
+dt C1
+@o1
+@Z ji þ @ji
+@Z C1C2
+@o1
+@Z
+/C18/C19/C20/C21
+dZ
+/C0 C1C2
+@o1
+@Z ji
+/C12/C12/C12
+/C12
+Z¼s
+Z¼0
+ð37Þ
+Ri
+E ¼
+Z s
+0
+C3
+dY
+dt ji /C0 dZ
+dt C3
+@Y
+@Z þ @ji
+@Z C4
+@Y
+@Z
+/C18/C19/C20/C21
+dZ /C0 C4
+@Y
+@Z ji
+/C12/C12
+/C12/C12
+Z¼s
+Z¼0
+ð38Þ
+Ri
+E ¼
+Z 0
+/C0 Lsup =L0
+@Ysup
+@t ji þ @ji
+@Z C5
+@Ysup
+@Z
+/C18/C19/C20/C21
+dZ /C0 C5
+@Ysup
+@Z ji
+/C12/C12/C12
+/C12
+Z¼0
+Z¼/C0 L=Lsup
+ð39Þ
+RS ¼ rsð1 /C0 o1Þds=dt /C0 C6ðxs /C0 xgÞV1=V2 ð40Þ
+The computational domain is discretized in 15 ﬁnite elements. Residuals
+are evaluated numerically using three-point Gaussian integration, and
+time integration follows the Euler backward method. The resulting sys-
+tem of nonlinear algebraic equations is solved with Newton-Raphson
+iteration according to scheme q
+ðnþ1Þ ¼ q /C0 J/C0 1RðqðnÞÞ, where q is the
+vector of unknowns and J is the Jacobian matrix of residuals R with
+respect to the nodal unknowns q. The maximum time step was equal to
+10/C0 2. The computer program exhibits quadratic convergence in three to
+ﬁve iterations at each time step. Any additional mesh reﬁnement or time
+step decrease has an improvement of less than 10
+/C0 6 in the accuracy of the
+solution.
+A detailed presentation of the ﬁnite element technique that enables
+simultaneous solution of the primary unknowns of the problem (solvent
+weight fraction and temperature) with the moving boundary can be
+found in Kistler and Scriven (1983) and Finlayson (1992).
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 345
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+RESULTS AND DISCUSSION
+In order to estimate the diffusion coefﬁcients, gravimetric data of solvent
+evaporation rate was compared with model predictions utilizing
+nonlinear regression analysis. The objective function requires the sum of
+squares of differences between the predicted and measured solvent eva-
+poration rate to be minimal. The primary unknown in the parameter
+estimation procedure was x (see Equation (33)). If the resulting ﬁtting
+between model predictions and experimental data was not satisfactory,
+quantities D
+0 and E were added to the estimation procedure.
+The resulting ﬁtting for acetone evaporation is shown in Figures 2
+and 3. The estimated value of x was 0.59 /C6 0.02. This result is in complete
+agreement with the reported value (0.6) of Arnould and Laurence (1992)
+who measured diffusion coefﬁcient of gaseous acetone in PVAC at the
+limit of pure polymer. Both experiment and model predictions show that
+as the initial polymer solution thickness increases, the rate of evaporation
+decreases since the solvent is provided at the surface with lower rate.
+Variation of temperature with time at the gas liquid interface is shown in
+Figure 4. Overall temperature variation is from 10 to 20
+/C14C, which is the
+range of validity of estimated diffusion coefﬁcients.
+Figure 2. Comparison of model predictions for acetone evaporation rate with experimental
+data. L 0 ¼ 180 mm, o10 ¼ 0.5, T 0 ¼ 20 /C6 1/C14C.
+346 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Figure 3. Comparison of model predictions for acetone evaporation rate with experimental
+data. L 0 ¼ 220 mm, o10 ¼ 0.5, T 0 ¼ 20 /C6 1/C14C.
+Figure 4. Model predictions for polymer solution surface temperature. Experimental condi-
+tions as in Figures 2 and 3.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 347
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+The temperature minimum of the thinner solution (180 mm) is
+reached faster than for the thicker one (240 mm) as expected due to a
+higher evaporation rate. The minimum value of temperature of the
+thicker solution is smaller because the amount of evaporated solvent is
+larger. This behavior has also been observed in the binary system acet-
+one-CA (Verros and Malamataris 1999, 2001a).
+Figure 5 depicts the proﬁles of acetone weight fraction as a function
+of dimensionless thickness. Variation of acetone weight fraction was from
+0.6 to almost zero, which is the rate of validity of estimated diffusion
+coefﬁcients. In the beginning of the evaporation process, a smooth
+decrease in the acetone proﬁle is observed. As evaporation proceeds,
+steep gradients are exhibited, and the value of acetone weight fraction at
+the interface is close to zero. This behavior is attributed to the fact that
+diffusion in the polymer ﬁlm is very slow due to increased polymer
+concentration, while evaporation at the surface is high, leading, thus, to
+steep gradients near the gas-liquid interface. Establishment of these steep
+gradients (at approximately 64 s) leads to further deceleration of the
+evaporation rate, because both diffusion and solvent evaporation at the
+interface become minimal due to increased polymer concentration
+throughout the solution. This causes small variation of acetone weight
+fraction at longer times, since in the ﬁrst 64 s, 65% of evaporated acetone
+Figure 5. Acetone weight fraction proﬁles. L 0 ¼ 180 mm, o10 ¼ 0.5, T 0 ¼ 20 /C6 1/C14C.
+348 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+is removed while the rest of the evaporated acetone is removed up to the
+end of the experiment at 220 s. This behavior is quite different from what
+is observed in the case of nonsolvent/solvent/polymer ternary solutions
+(Verros and Malamataris, 2001b), where steep gradients near the inter-
+face appeared from early evaporation times while solvent concentration
+at the bulk is almost unaffected.
+Figures 6 and 7 show temperature proﬁles as a function of the
+solution thickness, prior to (0 /C20 t /C20 64) and after minimum temperature
+attainment. Although the evaporation process is nonisothermal, the
+temperature in the polymer solution is uniform except for the beginning
+of the experiment where a small gradient is observed from the bottom up
+to the surface. This behavior is attributed to small variations of thermal
+conductivity and speciﬁc heat capacity with polymer concentration.
+Additionally, the heat transfer rates of the process are much higher than
+these of mass transfer as thermal diffusivity is of the order of 10
+/C0 7m2=s,
+compared to diffusion coefﬁcient, which is of the order of
+10
+/C0 9/C0 10/C0 17m2=s (Figure 8).
+However, in Figure 6, temperature proﬁles have a slight negative
+slope as expected by the decrease in surface temperature due to acetone
+Figure 6. Temperature proﬁles prior to the minimum temperature attainment. L 0 ¼ 180 mm,
+o10 ¼ 0.5, T 0 ¼ 20 /C6 1/C14C.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 349
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Figure 7. Temperature proﬁles after the minimum temperature attainment. L 0 ¼ 180 mm,
+o10 ¼ 0.5, T 0 ¼ 20 /C6 1/C14C.
+Figure 8. Acetone-PVAC binary diffusion coefﬁcient at 20 /C14C.
+350 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+evaporation, while in Figure 7 slopes become positive because of the
+increase at surface temperature (see Figure 4).
+In Figure 8, a comparison is made between estimated diffusion
+coefﬁcients and measurements by Kokes et al. (1952). The estimated
+binary diffusion coefﬁcient is almost one order of magnitude above the
+measured ones by acetone vapor sorption, and this difference is increased
+as acetone concentration increases. Similar differences between diffusion
+coefﬁcients measured by sorption and estimated by solvent evaporation
+for the system cellulose acetate-water were reported by Verros and
+Malamataris (2001b). This discrepancy is attributed to inherent differ-
+ences between sorption experiments and the liquid evaporation method.
+In Figures 9 and 10, an excellent agreement is depicted between
+model predictions for methyl acetate evaporation rate and experimental
+data for estimated values of x in the range 0.59 /C6 0.05. The corresponding
+value for x reported by Arnould and Laurence (1992) is 0.65. During the
+experiments the temperature varied from 20
+/C14Ct o1 0 /C14C as shown in
+Figure 11. Comparing Figure 11 and Figure 4 we observe that the
+minimum temperature for the methyl acetate-PVAC system is the same in
+both experiments, while the minimum temperature for the acetone-PVAC
+system is attained at the same time for both experiments.
+Figure 9. Comparison of model predictions for methyl acetate evaporation rate with experi-
+mental data. L 0 ¼ 180 mm, o10 ¼ 0.6, T 0 ¼ 20 /C6 1/C14C.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 351
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Figure 10. Comparison of model predictions for methyl acetate evaporation rate with ex-
+perimental data. L 0 ¼ 240 mm, o10 ¼ 0.6, T 0 ¼ 20 /C6 1/C14C.
+Figure 11. Model predictions for polymer solution surface temperature. Experimental con-
+ditions as in Figures 9 and 10.
+352 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+The excellent agreement between model prediction and experimental
+data for the chloroform evaporation rate is illustrated in Figure 12. The
+estimated values for D 0, E, and x were 2.82 m 2=s, 42800 J/gmol, and 0.69,
+respectively. Corresponding values for D 0,E ,a n d x, reported by Ju et al.
+(1981b; 1992b) are 6.12 10 7 4 m2/s, 30222 J/gmol, and 0.64, respectively.
+They applied Vrentas-Duda free volume theory to correlate binary diffu-
+sion coefﬁcients obtained from sorption experiments. In Figure 13, pre-
+dicted binary diffusion coefﬁcients are compared with experimental data of
+Ju et al. (1981b). The observed discrepancy is attributed to the different
+range of temperature and to inherent differences between the solvent eva-
+poration method and sorption experiments. In Figure 14, it is shown how
+temperature at the gas-liquid interface varies during evaporation. Upper
+and lower limits, for temperature are 20
+/C14C and 15 /C14C, respectively.
+Figure 15 depicts the chloroform proﬁles along the solution as func-
+tion of time. Compared to the case of acetone (Figure 5), more solvent
+(chloroform) is trapped in the solution. This phenomenon is attributed to
+lower values of diffusion coefﬁcients (Figure 13), which is caused by high
+critical energy (E) of diffusion and difference in chemical afﬁnity.
+Finally, errors introduced by uncertainty of values of heat and mass
+transfer coefﬁcients are negligible since the evaporation process is con-
+trolled by diffusion in the liquid phase. More speciﬁcally, it was shown
+Figure 12. Comparison of model predictions for chloroform evaporation rate with experi-
+mental data. L 0 ¼ 180 mm, o10 ¼ 0.6, T 0 ¼ 20 /C6 1/C14C.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 353
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Figure 13. Chloroform-PVAC binary diffusion coefﬁcient.
+Figure 14. Model predictions for polymer solution surface temperature. Experimental con-
+ditions as in Figure 12.
+354 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+(Verros and Malamataris, 1999) that variation of heat and mass transfer
+coefﬁcients by /C6 100% does not affect evaporation rate.
+CONCLUSIONS
+For the ﬁrst time, in this work we estimated diffusion coefﬁcients of
+three solvents, namely, acetone, methyl acetate, and chloroform in
+amorphous PVAC, using the solvent evaporation method. The experi-
+mentally determined evaporation rate from polymer-solvent thin ﬁlms
+was compared with model predictions in order to estimate diffusion
+coefﬁcients based on free volume theory. For this purpose, the coupled
+heat and mass transfer of the evaporation process is modeled as a one-
+dimensional numerical experiment with a moving boundary. Lattice
+ﬂuid thermodynamics was used to describe variations of polymer
+solution density and solvent chemical potential with concentration and
+temperature. The resulting complex system of governing equations
+along with appropriate initial and boundary conditions is solved with
+Galerkin ﬁnite elements. The estimated unknown parameters of diffu-
+sion coefﬁcient correlations, based on free-volume theory, are in satis-
+factory agreement with available experimental data from the literature.
+Figure 15. Chloroform weight fraction proﬁles. L 0 ¼ 180 mm, o10 ¼ 0.6, T 0 ¼ 20 /C6 1/C14C.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 355
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Discrepancies between the estimated diffusion coefﬁcients and experi-
+mental data are due to the complexity in obtaining accurate measure-
+ments and to uncertainty of model parameters. Comparing the diffusion
+behavior of three solvents, we observed that acetone and methyl acetate
+are trapped in PVAC in smaller amounts than chloroform. This is
+attributed to the high critical energy of chloroform diffusion. In all
+cases, the nonisothermal character of the diffusion process has been
+conﬁrmed, although the temperature at each time step was almost
+uniform in the solution. Steep gradients in the solvent concentration
+were observed from the beginning of the evaporation and gradually
+become steeper at the end of the process. It is believed that the present
+work establishes the solvent evaporation technique as a general tool
+that may be applied to other polymer-solvent systems for the estimation
+of diffusion coefﬁcients over a wide range of concentration and tem-
+perature, providing a valuable insight into the physics of diffusion and a
+more rational design of polymeric products.
+ACKNOWLEDGMENT
+G. D. V. is thankful to Prof. C. Panayiotou, Chemical Engineering
+Department, Aristotle University of Thessaloniki, for his kind support.
+NOMENCL ATURE
+Cp speciﬁc heat capacity of the polymer solution, J/kg.K
+D binary diﬀusion coeﬃcient, m 2/s
+h heat transfer coeﬃcient, W/m 2K
+k thermal conductivity of the polymer solution, W/mK
+P total pressure, Pa
+t time, s
+T temperature, K
+x
+s solvent mole fraction at the liquid layer-gas phase interface
+xg solvent mole fraction far away from the interface
+Greek letters
+DH solvent latent heat of vaporization, J/kg
+e emissivity of the polymer solution
+r1 solvent mass concentration, kg/m 3
+rs density of the polymer solution, kg/m 3
+s Stefan-Boltzmann constant, W/m 2K4
+Subscript
+sup properties and variables of the support
+356 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+REFERENCES
+Alsoy, S. and Duda, J. L. (1999). Modeling of multicomponent drying of polymer
+ﬁlms, AIChE J. 45(4), 896.
+Anderson, J. E. and Ullman, R. (1973). Mathematical analysis of factors inﬂu-
+encing the skin thickness of asymmetric reverse osmosis membranes, J. Appl.
+Phys. 44, 4303.
+Arnould, D. and Laurence, J. L. (1992). Size effects on solvent diffusion in
+polymers, Ind. Eng. Chem. Res. 31, 218.
+Ataka, M. and Sasaki, K. (1982). Gravimetric analysis of membrane casting. I:
+cellulose acetate-acetone binary casting solutions, J. Membrane Sci. 11, 11.
+Bird, R. B., Stewart, R., and Lightfoot, E. N. (1960). Transport Phenomena, John
+Wiley, New York.
+Cairncross, R. A., Jeyadef, E. N., Dunham, R. F., Evans, K. L., Francis, F., and
+Scriven, L. E. (1995). Modeling and design of an industrial dryer with con-
+vective and radiant heating, J. Appl. Polym. Sci. 58, 1279.
+Crank, J. (1975). The Mathematics of Diffusion , Clarendon Press, Oxford.
+Crank, J. and Park, G. S. (1968). Methods of measurement, In: Diffusion in
+Polymers, J. Crank and G. S. Park, eds., Academic Press, New York.
+Cussler, E. L. (1984). Diffusion Mass Transfer in Fluid Systems , Cambridge
+University Press, Cambridge.
+Dean, J. A. (1973). Lange’s Handbook of Chemistry, 11th ed., McGraw-Hill, New
+York.
+Finlayson, B. A. (1992). Numerical Methods for Problems with Moving Fronts ,
+Ravenna Park Publishing, Seattle.
+Guerrier, B., Bouchard, C., Allain, C., and Benard, C. (1998). Drying kinetics of
+polymer ﬁlms, AIChE J. 44(4), 791.
+Hong, S. (1995). Prediction of polymer/solvent solution behavior using free-vo-
+lume theory, Ind. Eng. Chem. Res. 34, 2536.
+Ju, S. T., Duda, J. L., and Vrentas, J. S. (1981a). Inﬂuence of temperature on the
+diffusion of solvents in polymers above the glass transition temperature, Ind.
+Eng. Chem. Prod. Res. Dev. 20, 330.
+Ju, S. T., Liu, H. T., Duda, J. L., and Vrentas, J. S. (1981b). Solvent diffusion in
+amorphous polymers, J. Appl. Polym. Sci. 26, 3735.
+Kistler, S. F. and Scriven, L. E. (1983). Coating Flows, In: Computational Ana-
+lysis of Polymer Processing , J. R. A. Pearson and S. M. Richardson, eds.,
+Applied Science Publishing, London.
+Kokes, R. J., Long, F. A., and Hoard, J. L. (1952). Diffusion of acetone into
+polyvinyl acetate above and below the second-order transition, J. Chem.
+Phys. 20, 1711.
+Luengo, L., Rabio, R. G., Sanchez, I. C., and Panayiotou, C. G. (1994). The
+system poly(4-hydroxystyrene)/poly(vinyl acetate)/acetone: an experimental
+and theoretical study, Makromol. Chem. Phys. 195, 1043.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 357
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+Panayiotou, C. G. and Sanchez, I. C. (1991). Hydrogen bonding in ﬂuids: an
+equation-of-state approach, J. Phys. Chem. 95, 10090.
+Park, G. S. (1961). Radioactive studies of diffusion in polymer systems. Part 3:
+sorption and self-diffusion in the acetone þ cellulose acetate system, Trans.
+Faraday Soc. 57, 2314.
+Perry, R. H. and Green, D. (1984). Perry’s Chemical Engineers’ Handbook, 6th
+ed., McGraw-Hill, New York.
+Price, Jr., P. E., Wang, S., and Romdhane, I. H. (1997). Extracting effective
+diffusion parameters from drying experiments, AIChE J. 43, 1925.
+Reuvers, A. J. and Smolders, C. A. (1987). Formation of membranes by means of
+immersion precipitation. Part II: the mechanism of formation of membranes
+prepared from the system cellulose acetate-acetone-water, J. Membrane Sci.
+34, 67.
+Sanchez, I. C. and Lacombe, R. H. (1976a). An elementary molecular theory of
+classical ﬂuids: pure ﬂuids, J. Phys. Chem. 80, 2352.
+Sanchez, I. C. and Lacombe, R. H. (1976b). Statistical thermodynamics of ﬂuid
+mixtures, J. Phys. Chem. 80, 2568.
+Sanchez, I. C. and Panayiotou, C. G. (1994). Equation of state thermodynamics
+of polymer and related solutions, In: Models for Thermodynamic and Phase
+Equilibrium Calculations , S. I. Sandler, ed., Marcel Dekker, New York.
+Sanopoulou, M., Roussis, P. P., and Petropoulos, J. H. (1995). A detailed study
+of the viscoelastic nature of vapor sorption and transport in a cellulosic
+polymer. I: origin and physical implications of deviations from Fickian
+sorption kinetics, J. Polym. Sci. Part B: Polym. Phys. 33, 993.
+Shojaie, S. S., Krantz, W. B., and Greenberg, A. R. (1992). Development and
+validation of a model for the formation of evaporatively cast polymeric ﬁlms.
+J. Mat. Proc. Man. Sci. 1, 181.
+Tyrrell, H. J. V. and Harris, K. R. (1984). Diffusion in Liquids: A Theoretical and
+Experimental Study , Butterworths, London.
+VDI-Verein Deutscher Ingenieure. (1974). VDI-Warmeatlas, VDI-Verlag,
+Dusseldorf.
+Verros, G. D. and Malamataris, N. A. (1999). Estimation of diffusion coefﬁcients
+in acetone-cellulose acetate solutions, Ind. Eng. Chem. Res. 38, 3572.
+Verros, G. D. and Malamataris, N. A. (2001a). Finite element analysis of poly-
+meric membrane and coating formation by solvent evaporation, Comput.
+Mech. 27, 332.
+Verros, G. D. and Malamataris, N. A. (2001b). Computer aided estimation of
+diffusion coefﬁcients in polymer/non-solvent systems, Macromol. Theory
+Simul. 10, 737.
+Vrentas, J. S. and Duda, J. L. (1977a). Diffusion in polymer-solvent systems. I:
+re-examination of the free-volume theory, J. Polym. Sci. Part B: Polym.
+Phys. 15, 403.
+Vrentas, J. S. and Duda, J. L. (1977b). Diffusion in polymer-solvent systems. II: a
+predictive theory for the dependence of diffusion coefﬁcients on temperature,
+358 G. D. VERROS ET AL.
+Downloaded By: [HEAL- Link Consortium] At: 15:54 21 June 2007 
+concentration and molecular weight, J. Polym. Sci. Part B: Polym. Phys. 15,
+417.
+Vrentas, J. S. and Vrentas, C. M. (1994). Drying of solvent-coated polymer ﬁlms,
+J. Polym. Sci. Part B: Polym. Phys. 32, 187.
+Vrentas, J. S., Vrentas, C. M., and Faridi, N. (1996). Effect of solvent size on
+solvent self-diffusion in polymer-solvent systems, Macromolecules 29, 3272.
+Zielinski, J. M. and Duda, J. L. (1992). Predicting polymer/solvent diffusion
+coefﬁcients using free volume theory, AIChE J. 38, 405.
+Zielinski, J. M. and Duda, J. L. (1996). Solvent diffusion in polymeric systems, In:
+Polymer Devolatilization , R. J. Albalak, ed., Marcel Dekker, New York.
+COMPUTER-AIDED ESTIMATION OF ACETONE, METHYL ACETATE 359
