@@ -7,6 +7,7 @@
  * Adapted from model/old_backup_model/ preprocessing.c + pls_predict.c
  */
 
+#define CHL_MODEL_IMPL
 #include "chl_predictor.h"
 #include <math.h>
 #include <string.h>
@@ -35,39 +36,6 @@ static void apply_sg_filter(const float *input, float *output, int length,
 
 /* ===== Internal: preprocessing pipeline ===== */
 
-static void preprocess_spectrum(const float *input, float *output, float *work,
-                                int length) {
-  int i;
-  float mean, std, inv_std;
-
-  /* Step 1: SG smoothing */
-  apply_sg_filter(input, work, length, SG_SMOOTH_COEFFS, SG_SMOOTH_WINDOW,
-                  SG_SMOOTH_HALF);
-
-  /* Step 2: SG first derivative */
-  apply_sg_filter(work, output, length, SG_DERIV_COEFFS, SG_DERIV_WINDOW,
-                  SG_DERIV_HALF);
-
-  /* Step 3: SNV normalization (zero mean, unit variance) */
-  mean = 0.0f;
-  for (i = 0; i < length; i++) {
-    mean += output[i];
-  }
-  mean /= (float)length;
-
-  std = 0.0f;
-  for (i = 0; i < length; i++) {
-    float d = output[i] - mean;
-    std += d * d;
-  }
-  std = sqrtf(std / (float)length);
-  inv_std = (std > 1e-8f) ? (1.0f / std) : 1.0f;
-
-  for (i = 0; i < length; i++) {
-    output[i] = (output[i] - mean) * inv_std;
-  }
-}
-
 /* ===== Internal: PLS prediction ===== */
 
 static float pls_predict(const float *features) {
@@ -78,6 +46,9 @@ static float pls_predict(const float *features) {
     float scaled =
         (x_std > 1e-8f) ? (features[i] - PLS_X_MEAN[i]) / x_std : 0.0f;
     prediction += scaled * PLS_COEF[i];
+  }
+  if (prediction < 0.0f) {
+    prediction = 0.0f;
   }
   return prediction;
 }
@@ -126,6 +97,7 @@ static float pca_svr_predict(const float *features, float *pca_out) {
 
 static chl_status_t common_preprocess(chl_predictor_t *pred,
                                       const float *avg_spectrum,
+                                      const float *background,
                                       float integration_ms) {
   int i;
 
@@ -134,20 +106,65 @@ static chl_status_t common_preprocess(chl_predictor_t *pred,
   if (integration_ms <= 0.0f)
     return CHL_ERR_INVALID_TIME;
 
-  /* Copy spectrum to buf_a and normalize by integration time */
+  /* Check for sufficient signal to avoid amplifying noise */
+  float max_val = 0.0f;
   for (i = 0; i < FULL_SPECTRUM_LEN; i++) {
-    pred->buf_a[i] = avg_spectrum[i] / integration_ms;
+    if (avg_spectrum[i] > max_val) {
+      max_val = avg_spectrum[i];
+    }
   }
 
-  /* Run preprocessing: SG smooth → derivative → SNV */
-  /* Output in buf_a, uses buf_b as work buffer */
-  preprocess_spectrum(pred->buf_a, pred->buf_b, pred->buf_a, FULL_SPECTRUM_LEN);
+  // Threshold: 500 (out of 65535) is very low light/dark noise
+  if (max_val < 500.0f) {
+    return CHL_ERR_LOW_SIGNAL;
+  }
 
-  /* Note: after preprocess_spectrum, the result is in buf_b (output param) */
+  /* Step 0: Background Subtraction & Polarity Correction */
+  /*
+   * Models were trained on:  (Raw Signal - Raw Background)
+   * Device 'avg_spectrum' is already inverted: 65535 - Raw Signal
+   * Device 'background' is also inverted: 65535 - Raw Background
+   *
+   * Subtraction (background - avg_spectrum) equals:
+   * (65535 - RawBG) - (65535 - RawSig) = RawSig - RawBG
+   * This yields the correct negative-peaking features for Chl-a PLS.
+   */
+  for (i = 0; i < FULL_SPECTRUM_LEN; i++) {
+    float bg_val = (background != NULL) ? background[i] : 0.0f;
+    pred->buf_a[i] = (bg_val - avg_spectrum[i]) / integration_ms;
+  }
 
-  /* ROI crop: pixels ROI_START to ROI_END */
+  /* Step 1: SG smoothing (Full Spectrum) */
+  apply_sg_filter(pred->buf_a, pred->buf_b, FULL_SPECTRUM_LEN, SG_SMOOTH_COEFFS,
+                  SG_SMOOTH_WINDOW, SG_SMOOTH_HALF);
+
+  /* Step 2: SG first derivative (Full Spectrum) */
+  /* Output to buf_a */
+  apply_sg_filter(pred->buf_b, pred->buf_a, FULL_SPECTRUM_LEN, SG_DERIV_COEFFS,
+                  SG_DERIV_WINDOW, SG_DERIV_HALF);
+
+  /* Step 3: Crop to ROI */
   for (i = 0; i < NUM_FEATURES; i++) {
-    pred->roi[i] = pred->buf_b[ROI_START + i];
+    pred->roi[i] = pred->buf_a[ROI_START + i];
+  }
+
+  /* Step 4: SNV normalization on ROI (zero mean, unit variance) */
+  float mean = 0.0f;
+  for (i = 0; i < NUM_FEATURES; i++) {
+    mean += pred->roi[i];
+  }
+  mean /= (float)NUM_FEATURES;
+
+  float std = 0.0f;
+  for (i = 0; i < NUM_FEATURES; i++) {
+    float d = pred->roi[i] - mean;
+    std += d * d;
+  }
+  std = sqrtf(std / (float)NUM_FEATURES);
+  float inv_std = (std > 1e-8f) ? (1.0f / std) : 1.0f;
+
+  for (i = 0; i < NUM_FEATURES; i++) {
+    pred->roi[i] = (pred->roi[i] - mean) * inv_std;
   }
 
   return CHL_OK;
@@ -156,13 +173,14 @@ static chl_status_t common_preprocess(chl_predictor_t *pred,
 /* ===== Public API ===== */
 
 chl_status_t chl_predict_chla(chl_predictor_t *pred, const float *avg_spectrum,
-                              float integration_ms, float *concentration) {
+                              const float *background, float integration_ms,
+                              float *concentration) {
   chl_status_t status;
 
   if (!concentration)
     return CHL_ERR_NULL_PTR;
 
-  status = common_preprocess(pred, avg_spectrum, integration_ms);
+  status = common_preprocess(pred, avg_spectrum, background, integration_ms);
   if (status != CHL_OK)
     return status;
 
@@ -171,13 +189,14 @@ chl_status_t chl_predict_chla(chl_predictor_t *pred, const float *avg_spectrum,
 }
 
 chl_status_t chl_predict_chlb(chl_predictor_t *pred, const float *avg_spectrum,
-                              float integration_ms, float *concentration) {
+                              const float *background, float integration_ms,
+                              float *concentration) {
   chl_status_t status;
 
   if (!concentration)
     return CHL_ERR_NULL_PTR;
 
-  status = common_preprocess(pred, avg_spectrum, integration_ms);
+  status = common_preprocess(pred, avg_spectrum, background, integration_ms);
   if (status != CHL_OK)
     return status;
 

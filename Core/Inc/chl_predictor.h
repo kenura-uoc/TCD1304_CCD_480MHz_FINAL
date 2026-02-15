@@ -14,12 +14,12 @@
 #include "chl_model_data.h"
 #include <stdint.h>
 
-
 /* Status codes */
 typedef enum {
   CHL_OK = 0,
-  CHL_ERR_NULL_PTR,
-  CHL_ERR_INVALID_TIME
+  CHL_ERR_NULL_PTR = -1,
+  CHL_ERR_INVALID_TIME = -2,
+  CHL_ERR_LOW_SIGNAL = -3
 } chl_status_t;
 
 /*
@@ -44,7 +44,8 @@ typedef struct {
  * @return CHL_OK on success
  */
 chl_status_t chl_predict_chla(chl_predictor_t *pred, const float *avg_spectrum,
-                              float integration_ms, float *concentration);
+                              const float *background, float integration_ms,
+                              float *concentration);
 
 /**
  * Predict Chl-b concentration from a pre-averaged float spectrum.
@@ -56,6 +57,7 @@ chl_status_t chl_predict_chla(chl_predictor_t *pred, const float *avg_spectrum,
  * @return CHL_OK on success
  */
 chl_status_t chl_predict_chlb(chl_predictor_t *pred, const float *avg_spectrum,
-                              float integration_ms, float *concentration);
+                              const float *background, float integration_ms,
+                              float *concentration);
 
 #endif /* CHL_PREDICTOR_H */

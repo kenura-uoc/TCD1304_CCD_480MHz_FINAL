@@ -90,7 +90,7 @@ volatile uint8_t ccd_mode = 0;
 volatile uint8_t mode_update_pending = 0;
 
 // Integration Time Control (in milliseconds)
-volatile uint32_t integration_time_ms = 1000; // Default 1000ms
+volatile uint32_t integration_time_ms = 300; // Default 300ms
 
 // --- Menu System ---
 LCD_HandleTypeDef lcd;
@@ -112,7 +112,7 @@ static void MX_I2C1_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM15_Init(void);
 static void MX_TIM1_Init(void);
-static void MX_SDMMC1_SD_Init(void);
+// static void MX_SDMMC1_SD_Init(void);
 void Process_USB_Command(uint8_t *buf, uint32_t len);
 /* USER CODE BEGIN PFP */
 
@@ -239,6 +239,12 @@ void readCCD(void) {
 // ADC/DMA callback - Frame Complete
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
+    // INVERT SIGNALS IMMEDIATELY (TCD1304: High Voltage = Dark -> Low Value)
+    // By inverting here, everything (USB and Auto-Measure) sees Light=High.
+    for (int i = 0; i < CCD_BUFFER_SIZE; i++) {
+      Buffer_A[i] = 65535 - Buffer_A[i];
+    }
+
     ccd_frame.magic = 0xABCD;
     ccd_frame.frame_num = frame_counter;
     memcpy(ccd_frame.pixels, (void *)Buffer_A, CCD_BUFFER_SIZE * 2);
@@ -433,6 +439,8 @@ int main(void) {
       readCCD();
 
       // Step 2: Fixed Integration Time
+      if (integration_time_ms < 15)
+        integration_time_ms = 15; // Safety clamp
       delay_ms_precise(integration_time_ms);
 
       // Step 3: Arm DMA
@@ -726,35 +734,6 @@ static void MX_I2C1_Init(void) {
 }
 
 /**
- * @brief SDMMC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_SDMMC1_SD_Init(void) {
-
-  /* USER CODE BEGIN SDMMC1_Init 0 */
-
-  /* USER CODE END SDMMC1_Init 0 */
-
-  /* USER CODE BEGIN SDMMC1_Init 1 */
-
-  /* USER CODE END SDMMC1_Init 1 */
-  hsd1.Instance = SDMMC1;
-  hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
-  hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
-  hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
-  hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 2;
-  if (HAL_SD_Init(&hsd1) != HAL_OK) {
-    // SD card not present — this is OK, don't halt the system
-    // Error_Handler();
-  }
-  /* USER CODE BEGIN SDMMC1_Init 2 */
-
-  /* USER CODE END SDMMC1_Init 2 */
-}
-
-/**
  * @brief TIM1 Initialization Function
  * @param None
  * @retval None
@@ -942,7 +921,6 @@ static void MX_TIM4_Init(void) {
   /* USER CODE END TIM4_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 

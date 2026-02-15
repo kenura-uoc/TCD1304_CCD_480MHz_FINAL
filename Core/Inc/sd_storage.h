@@ -61,4 +61,10 @@ uint8_t SD_ListProjects(uint16_t page_start, uint16_t *indices,
 // Load config from a specific project
 uint8_t SD_LoadConfig(uint16_t proj_index, ProjectConfig *cfg);
 
+// Save calculated results (A/B) to results.txt
+uint8_t SD_SaveMeasResult(uint16_t proj_index, float chl_a, float chl_b);
+
+// Load calculated results from results.txt
+uint8_t SD_LoadMeasResult(uint16_t proj_index, float *chl_a, float *chl_b);
+
 #endif // SD_STORAGE_H

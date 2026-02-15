@@ -15,12 +15,15 @@
 
 // --- App/Screen States ---
 typedef enum {
-  SCREEN_MAIN_MENU = 0,
+  SCREEN_SPLASH,
+  SCREEN_MAIN_MENU,
   SCREEN_RUN_CCD,
-  SCREEN_AUTO_MEASURE, // Automated dual-laser measurement
+  SCREEN_AUTO_MEASURE,
   SCREEN_OLD_MEASUREMENTS,
+  SCREEN_OLD_MEAS_VIEW,
   SCREEN_SETTINGS,
   SCREEN_SETTINGS_LASER, // Sub-screen: adjust laser PWM
+  SCREEN_SETTINGS_INTEG, // Sub-screen: adjust integration time
 } ScreenState;
 
 // Number of main menu items
@@ -40,14 +43,16 @@ typedef struct {
 #define SETTINGS_MAGIC 0xCB00 // Bumped — servo fields removed
 
 typedef struct {
-  uint16_t magic;      // Identifies valid settings
-  uint16_t laser1_pwm; // 405nm duty (0-2399)
-  uint16_t laser2_pwm; // 450nm duty (0-2399)
+  uint16_t magic;            // Identifies valid settings
+  uint16_t laser1_pwm;       // 405nm duty (0-2399)
+  uint16_t laser2_pwm;       // 450nm duty (0-2399)
+  uint16_t integration_time; // CCD Integration time in ms
 } DeviceSettings;
 
 // --- Auto-measurement sub-states ---
 typedef enum {
   AUTO_IDLE = 0,
+  AUTO_CAPTURE_DARK,   // Capturing CCD frames with lasers OFF (baseline)
   AUTO_MOVE_LASER1,    // Moving servo to laser 1 position
   AUTO_SETTLE_LASER1,  // Waiting for servo to settle
   AUTO_CAPTURE_LASER1, // Capturing CCD frames for laser 1
@@ -65,6 +70,7 @@ typedef enum {
 typedef struct {
   ScreenState screen;
   uint8_t menu_sel;         // Main menu cursor position (0-3)
+  uint8_t settings_sel;     // Settings menu cursor (0=Laser, 1=Integ)
   uint8_t meas_sel;         // Old measurements scroll index
   uint8_t laser_sel;        // 0=405nm, 1=450nm in settings
   uint8_t ccd_running;      // 1 when CCD acquisition is active
@@ -85,6 +91,7 @@ typedef struct {
   uint16_t auto_proj_index;  // Current project index on SD card
 
   // ML Inference State
+  float dark_accum[FULL_SPECTRUM_LEN]; // Averaged dark reference frame
   float auto_accum[FULL_SPECTRUM_LEN]; // Accumulator for averaging frames
   chl_predictor_t predictor;           // ML predictor working memory
   float result_chl_a;                  // Last predicted Chl-a

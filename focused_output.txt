@@ -1,0 +1,34 @@
+﻿RESULTS TABLE
+================================================================================
+Scenario                                         Raw PLS    Clamped    Display
+--------------------------------------------------------------------------------
+405nm + uniform dark (edges)                      9.0196     9.0196     9.0196
+405nm + CSV dark (old setup)                      5.4550     5.4550     5.4550
+405nm + NO background                             9.0196     9.0196     9.0196
+450nm + uniform dark (edges)                      6.4859     6.4859     6.4859
+450nm + CSV dark (old setup)                      1.2712     1.2712     1.2712
+450nm + NO background                             6.4859     6.4859     6.4859
+
+Real lab values: A=2.84, B=1.60
+Device reported: A=-3.00 (error), B=1.80
+
+KEY ANALYSIS:
+--------------------------------------------------------------------------------
+The device captures its OWN dark frame (lasers OFF, CCD running).
+Edge pixels give an estimate of what that looks like.
+Dark level estimate (inverted): 7992.5
+Dark level raw:                 57542.5
+CSV background raw:             58310.9
+Difference:                     768.4
+
+CRITICAL: With edge-estimated dark, 405nm Chl-a PLS gives POSITIVE ~9.0
+But device shows -3.00. This means the device dark frame is DIFFERENT
+from the edge-pixel estimate, OR the integration_time_ms value is wrong.
+
+INTEGRATION TIME SENSITIVITY:
+  int_time=100ms: raw=9.0196 display=9.0196
+  int_time=200ms: raw=9.0196 display=9.0196
+  int_time=500ms: raw=9.0196 display=9.0196
+  int_time=1000ms: raw=9.0196 display=9.0196
+  int_time=2000ms: raw=9.0196 display=9.0196
+  int_time=5000ms: raw=9.0196 display=9.0196

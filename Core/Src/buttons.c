@@ -86,6 +86,15 @@ void Buttons_Tick(void) {
         b->hold_next = now + REPEAT_MS;
       }
     }
+
+    // --- LONG PRESS REBOOT (OK BUTTON) ---
+    // If OK button is held for > 5 seconds, reboot system
+    // b->stable == 1 means Pressed (active low hardware, inverted in software)
+    if (i == BTN_ID_OK && b->stable == 1) {
+      if ((now - b->last_change) > 5000) {
+        HAL_NVIC_SystemReset();
+      }
+    }
   }
 }
 

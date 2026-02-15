@@ -8,9 +8,10 @@
 #include "sd_storage.h"
 #include "fatfs.h"
 #include "main.h"
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
 
 // FatFS objects — SDFatFS is provided by fatfs.c (CubeMX)
 static uint8_t sd_mounted = 0;
@@ -89,7 +90,7 @@ uint8_t SD_SaveFrame(uint16_t proj_index, uint8_t laser_id,
   if (!sd_mounted)
     return 0;
 
-  char path[64];
+  char path[128];
   char proj_path[48];
   BuildProjectPath(proj_path, sizeof(proj_path), proj_index);
   snprintf(path, sizeof(path), "%s/laser%d_data.bin", proj_path, laser_id + 1);
@@ -120,7 +121,7 @@ uint8_t SD_SaveConfig(uint16_t proj_index, const ProjectConfig *cfg) {
   if (!sd_mounted)
     return 0;
 
-  char path[64];
+  char path[128];
   char proj_path[48];
   BuildProjectPath(proj_path, sizeof(proj_path), proj_index);
   snprintf(path, sizeof(path), "%s/config.txt", proj_path);
@@ -251,6 +252,81 @@ uint8_t SD_LoadConfig(uint16_t proj_index, ProjectConfig *cfg) {
       cfg->frames_per_laser = val;
     else if (sscanf(line, "timestamp=%lu", &uval) == 1)
       cfg->timestamp = (uint32_t)uval;
+  }
+
+  f_close(&fil);
+  return 1;
+}
+
+uint8_t SD_SaveMeasResult(uint16_t proj_index, float chl_a, float chl_b) {
+  if (!sd_mounted)
+    return 0;
+
+  char path[64];
+  char proj_path[48];
+  BuildProjectPath(proj_path, sizeof(proj_path), proj_index);
+  snprintf(path, sizeof(path), "%s/results.txt", proj_path);
+
+  FIL fil;
+  FRESULT res = f_open(&fil, path, FA_WRITE | FA_CREATE_ALWAYS);
+  if (res != FR_OK)
+    return 0;
+
+  char buf[64];
+  int len;
+
+  // Manual float formatting
+  int a_int = (int)chl_a;
+  int a_frac = (int)(fabsf(chl_a - a_int) * 10000); // 4 decimals
+  len = snprintf(buf, sizeof(buf), "chl_a=%s%d.%04d\n", (chl_a < 0 ? "-" : ""),
+                 abs(a_int), a_frac);
+  f_write(&fil, buf, len, NULL);
+
+  int b_int = (int)chl_b;
+  int b_frac = (int)(fabsf(chl_b - b_int) * 10000);
+  len = snprintf(buf, sizeof(buf), "chl_b=%s%d.%04d\n", (chl_b < 0 ? "-" : ""),
+                 abs(b_int), b_frac);
+  f_write(&fil, buf, len, NULL);
+
+  f_close(&fil);
+  return 1;
+}
+
+uint8_t SD_LoadMeasResult(uint16_t proj_index, float *chl_a, float *chl_b) {
+  if (!sd_mounted)
+    return 0;
+
+  char path[64];
+  char proj_path[48];
+  BuildProjectPath(proj_path, sizeof(proj_path), proj_index);
+  snprintf(path, sizeof(path), "%s/results.txt", proj_path);
+
+  FIL fil;
+  if (f_open(&fil, path, FA_READ) != FR_OK)
+    return 0;
+
+  char line[64];
+  // Defaults
+  *chl_a = -1.0f;
+  *chl_b = -1.0f;
+
+  while (f_gets(line, sizeof(line), &fil)) {
+    // Manual parsing: find "="
+    char *eq = strchr(line, '=');
+    if (eq) {
+      eq++; // Skip '='
+      float val =
+          (float)atof(eq); // atof usually works even if scanf %f doesn't
+      // If atof fails, we might need manual parsing too.
+      // Let's assume atof works or try a simple manual fallback if val is 0 but
+      // string isn't "0"
+
+      if (strncmp(line, "chl_a=", 6) == 0) {
+        *chl_a = val;
+      } else if (strncmp(line, "chl_b=", 6) == 0) {
+        *chl_b = val;
+      }
+    }
   }
 
   f_close(&fil);
