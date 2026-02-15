@@ -32,8 +32,8 @@ void Settings_Load(DeviceSettings *s) {
 
   if (s->magic != SETTINGS_MAGIC) {
     s->magic = SETTINGS_MAGIC;
-    s->laser1_pwm = 0;
-    s->laser2_pwm = 0;
+    s->laser1_pwm = 2399; // 100% default brightness
+    s->laser2_pwm = 2399; // 100% default brightness
     Settings_Save(s);
   }
 }
@@ -162,14 +162,18 @@ static void Render_MainMenu(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
 #define DBLCLICK_MS 400 // Max gap between two RIGHT presses for double-click
 
 static void Render_RunCCD(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
+  // Clear LCD first to flush any corrupted I2C state from USB interrupts
+  LCD_Clear(lcd);
   if (ctx->ccd_paused) {
     LCD_PrintLine(lcd, 0, "CCD PAUSED");
   } else {
-    LCD_PrintLine(lcd, 0, "CCD Running...");
+    char line0[17];
+    snprintf(line0, sizeof(line0), "CCD  %s",
+             (ctx->active_laser == 0) ? "405nm" : "450nm");
+    LCD_PrintLine(lcd, 0, line0);
   }
   char buf[17];
-  snprintf(buf, sizeof(buf), "F:%lu  R>  L<",
-           (unsigned long)ctx->ccd_frame_count);
+  snprintf(buf, sizeof(buf), "Frame: %lu", (unsigned long)ctx->ccd_frame_count);
   LCD_PrintLine(lcd, 1, buf);
 }
 
@@ -206,7 +210,8 @@ static void Render_AutoMeasure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
     snprintf(line2, sizeof(line2), "Please wait");
     break;
   case AUTO_COMPLETE:
-    snprintf(line1, sizeof(line1), "Complete!");
+    snprintf(line1, sizeof(line1), "A:%.2f B:%.2f", ctx->result_chl_a,
+             ctx->result_chl_b);
     snprintf(line2, sizeof(line2), "OK=Done");
     break;
   default:
@@ -261,7 +266,7 @@ static void Render_OldMeasurements(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
 
 static void Render_Settings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_PrintLine(lcd, 0, ">Laser PWM");
-  char buf[20];
+  char buf[17];
   uint8_t pct1 = (uint8_t)((ctx->settings.laser1_pwm * 100UL) / 2399);
   uint8_t pct2 = (uint8_t)((ctx->settings.laser2_pwm * 100UL) / 2399);
   snprintf(buf, sizeof(buf), "L1:%3d%% L2:%3d%%", pct1, pct2);
@@ -432,11 +437,12 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
           ctx->ccd_running = 1;
           ctx->ccd_paused = 0;
           ctx->ccd_frame_count = 0;
-          // Turn on lasers at saved brightness
+          // Start with 405nm laser active
+          ctx->active_laser = 0;
+          Servo_MoveTo(0);
           __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1,
                                 ctx->settings.laser1_pwm);
-          __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2,
-                                ctx->settings.laser2_pwm);
+          __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
           break;
         case 1: // Auto Measure
           Buttons_Reset();
@@ -472,6 +478,22 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
         ctx->screen = SCREEN_MAIN_MENU;
         ctx->need_redraw = 1;
       }
+      if (id == BTN_ID_UP) {
+        // Switch to 405nm laser
+        ctx->active_laser = 0;
+        Servo_MoveTo(0);
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, ctx->settings.laser1_pwm);
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_DOWN) {
+        // Switch to 450nm laser
+        ctx->active_laser = 1;
+        Servo_MoveTo(1);
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, ctx->settings.laser2_pwm);
+        ctx->need_redraw = 1;
+      }
       if (id == BTN_ID_RIGHT) {
         uint32_t now = HAL_GetTick();
         if ((now - ctx->right_last_tick) < DBLCLICK_MS) {
@@ -482,15 +504,20 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
           // Single-click RIGHT: toggle pause/resume
           ctx->ccd_paused = !ctx->ccd_paused;
           if (ctx->ccd_paused) {
-            // Paused: turn off lasers
+            // Paused: turn off active laser
             __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
             __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
           } else {
-            // Resumed: turn lasers back on
-            __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1,
-                                  ctx->settings.laser1_pwm);
-            __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2,
-                                  ctx->settings.laser2_pwm);
+            // Resumed: turn on only the active laser
+            if (ctx->active_laser == 0) {
+              __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1,
+                                    ctx->settings.laser1_pwm);
+              __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
+            } else {
+              __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
+              __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2,
+                                    ctx->settings.laser2_pwm);
+            }
           }
           ctx->right_last_tick = now;
         }
@@ -580,6 +607,9 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
     // ---- SETTINGS ----
     case SCREEN_SETTINGS:
       if (id == BTN_ID_LEFT) {
+        // Turn off lasers when leaving Settings
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
+        __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
         Buttons_Reset();
         ctx->screen = SCREEN_MAIN_MENU;
         ctx->need_redraw = 1;
@@ -686,11 +716,9 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
 void Menu_CCD_FrameUpdate(MenuContext *ctx, LCD_HandleTypeDef *lcd,
                           uint32_t frame_num) {
   ctx->ccd_frame_count = frame_num;
-  LCD_SetCursor(lcd, 7, 1);
-  char buf[9];
-  snprintf(buf, sizeof(buf), "%lu", (unsigned long)frame_num);
-  LCD_Print(lcd, buf);
-  LCD_Print(lcd, "    ");
+  char buf[17];
+  snprintf(buf, sizeof(buf), "Frame: %lu", (unsigned long)frame_num);
+  LCD_PrintLine(lcd, 1, buf);
 }
 
 void Menu_SaveMeasurement(MenuContext *ctx, float chl_a, float chl_b) {
@@ -716,33 +744,92 @@ void Menu_SaveMeasurement(MenuContext *ctx, float chl_a, float chl_b) {
 // Auto-Measurement Frame Callback
 // Called from main loop when a CCD frame is ready during auto-measure
 // ============================================================
+// External reference to integration time (from main.c)
+extern volatile uint32_t integration_time_ms;
+
 void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
                            uint16_t pixel_count) {
+
+  // 1. Accumulate Frame Data
+  // ------------------------
+  int len = (pixel_count < FULL_SPECTRUM_LEN) ? pixel_count : FULL_SPECTRUM_LEN;
+
+  if (ctx->auto_frame_count == 0) {
+    // First frame: overwrite accumulator
+    for (int i = 0; i < len; i++) {
+      ctx->auto_accum[i] = (float)pixels[i];
+    }
+  } else {
+    // Subsequent frames: accumulate
+    for (int i = 0; i < len; i++) {
+      ctx->auto_accum[i] += (float)pixels[i];
+    }
+  }
+
+  // 2. Process Based on State
+  // -------------------------
   if (ctx->auto_state == AUTO_CAPTURE_LASER1) {
-    // Save frame to SD
+    // Save raw frame to SD (optional, but good for debugging/data collection)
     if (SD_IsPresent()) {
       SD_SaveFrame(ctx->auto_proj_index, 0, pixels, pixel_count,
                    ctx->auto_frame_count);
     }
+
     ctx->auto_frame_count++;
     ctx->need_redraw = 1;
 
+    // Last frame for Laser 1? Run Prediction
     if (ctx->auto_frame_count >= AUTO_FRAMES_PER_LASER) {
+      // Average the accumulator happens implicitly in the predictor helper?
+      // No, predictor expects averaged spectrum.
+      // We'll divide by count before passing to predictor.
+      for (int i = 0; i < len; i++) {
+        ctx->auto_accum[i] /= (float)AUTO_FRAMES_PER_LASER;
+      }
+
+      // Predict Chl-a
+      float int_time = (float)integration_time_ms;
+      if (int_time < 0.1f)
+        int_time = 1.0f; // Safety
+
+      chl_status_t status = chl_predict_chla(&ctx->predictor, ctx->auto_accum,
+                                             int_time, &ctx->result_chl_a);
+      if (status != CHL_OK)
+        ctx->result_chl_a = -1.0f; // Error flag
+
       ctx->ccd_running = 0;
       ctx->auto_state = AUTO_MOVE_LASER2;
     }
+
   } else if (ctx->auto_state == AUTO_CAPTURE_LASER2) {
     if (SD_IsPresent()) {
       SD_SaveFrame(ctx->auto_proj_index, 1, pixels, pixel_count,
                    ctx->auto_frame_count);
     }
+
     ctx->auto_frame_count++;
     ctx->need_redraw = 1;
 
+    // Last frame for Laser 2? Run Prediction
     if (ctx->auto_frame_count >= AUTO_FRAMES_PER_LASER) {
+      // Average
+      for (int i = 0; i < len; i++) {
+        ctx->auto_accum[i] /= (float)AUTO_FRAMES_PER_LASER;
+      }
+
+      // Predict Chl-b
+      float int_time = (float)integration_time_ms;
+      if (int_time < 0.1f)
+        int_time = 1.0f;
+
+      chl_status_t status = chl_predict_chlb(&ctx->predictor, ctx->auto_accum,
+                                             int_time, &ctx->result_chl_b);
+      if (status != CHL_OK)
+        ctx->result_chl_b = -1.0f;
+
       ctx->ccd_running = 0;
-      // Save a measurement record to backup SRAM too
-      Menu_SaveMeasurement(ctx, 0.0f, 0.0f); // Placeholder until ML runs
+      // Save measurement record + result to SD
+      Menu_SaveMeasurement(ctx, ctx->result_chl_a, ctx->result_chl_b);
       ctx->auto_state = AUTO_SAVING;
     }
   }

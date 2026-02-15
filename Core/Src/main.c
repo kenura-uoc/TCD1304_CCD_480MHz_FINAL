@@ -90,7 +90,7 @@ volatile uint8_t ccd_mode = 0;
 volatile uint8_t mode_update_pending = 0;
 
 // Integration Time Control (in milliseconds)
-volatile uint32_t integration_time_ms = 18; // Default 18ms
+volatile uint32_t integration_time_ms = 1000; // Default 1000ms
 
 // --- Menu System ---
 LCD_HandleTypeDef lcd;

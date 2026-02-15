@@ -69,7 +69,7 @@ class SettingsManager:
             "last_project": "Default",
             "remove_dummies": False,
             "y_max": 65535,
-            "integration_time_ms": 18  # Default integration time in ms
+            "integration_time_ms": 1000  # Default integration time in ms
         }
         self.data = self.defaults.copy()
         self.load()

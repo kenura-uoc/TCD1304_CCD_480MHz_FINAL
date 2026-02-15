@@ -8,6 +8,7 @@
 #define MENU_H
 
 #include "buttons.h"
+#include "chl_predictor.h"
 #include "liquidcrystal_i2c.h"
 #include "main.h"
 #include "sd_storage.h"
@@ -36,7 +37,7 @@ typedef struct {
 } MeasurementRecord;
 
 // --- Persistent settings (saved to backup SRAM) ---
-#define SETTINGS_MAGIC 0xCAFE
+#define SETTINGS_MAGIC 0xCB00 // Bumped — servo fields removed
 
 typedef struct {
   uint16_t magic;      // Identifies valid settings
@@ -68,6 +69,7 @@ typedef struct {
   uint8_t laser_sel;        // 0=405nm, 1=450nm in settings
   uint8_t ccd_running;      // 1 when CCD acquisition is active
   uint8_t ccd_paused;       // 1 when CCD streaming is paused (Run CCD)
+  uint8_t active_laser;     // 0=405nm, 1=450nm — active laser in Run CCD
   uint8_t need_redraw;      // Force LCD redraw
   uint32_t ccd_frame_count; // Frame counter for display
   uint32_t right_last_tick; // Tick of last RIGHT press (for double-click)
@@ -81,6 +83,12 @@ typedef struct {
   uint32_t auto_timer;       // Tick for timing sub-states
   uint16_t auto_frame_count; // Frames captured so far for current laser
   uint16_t auto_proj_index;  // Current project index on SD card
+
+  // ML Inference State
+  float auto_accum[FULL_SPECTRUM_LEN]; // Accumulator for averaging frames
+  chl_predictor_t predictor;           // ML predictor working memory
+  float result_chl_a;                  // Last predicted Chl-a
+  float result_chl_b;                  // Last predicted Chl-b
 
   // Old measurements pagination (SD card)
   uint16_t old_meas_page; // Current page (0-based)
