@@ -18,13 +18,20 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "fatfs.h"
 #include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "buttons.h"
+#include "liquidcrystal_i2c.h"
+#include "menu.h"
+#include "sd_storage.h"
+#include "servo.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,12 +51,19 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc1;
 
+I2C_HandleTypeDef hi2c1;
+
+SD_HandleTypeDef hsd1;
+
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
+TIM_HandleTypeDef htim15;
 
 /* USER CODE BEGIN PV */
 #define CCD_BUFFER_SIZE 3694 // 32 Dummies + 3648 Pixels + 14 Dummies
@@ -72,17 +86,20 @@ uint16_t frame_counter = 0;
 CCD_Frame_t ccd_frame;
 
 // Mode Control
-volatile uint8_t ccd_mode = 0; // 0=Fast, 1=Stable(OneShot), 2=LongExposure
+volatile uint8_t ccd_mode = 0;
 volatile uint8_t mode_update_pending = 0;
 
 // Integration Time Control (in milliseconds)
-// Minimum: ~15ms (time to read 3694 pixels at 250kHz)
-// Maximum: 100ms (for low-light/fluorescence)
 volatile uint32_t integration_time_ms = 18; // Default 18ms
+
+// --- Menu System ---
+LCD_HandleTypeDef lcd;
+MenuContext menu_ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -91,7 +108,12 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM5_Init(void);
-void Process_USB_Command(uint8_t *buf, uint32_t len); // Prototype
+static void MX_I2C1_Init(void);
+static void MX_ADC3_Init(void);
+static void MX_TIM15_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_SDMMC1_SD_Init(void);
+void Process_USB_Command(uint8_t *buf, uint32_t len);
 /* USER CODE BEGIN PFP */
 
 // ============================================================
@@ -217,12 +239,8 @@ void readCCD(void) {
 // ADC/DMA callback - Frame Complete
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
-    // Frame capture complete - copy to transmission buffer
-    // For Circular Mode, this fires at the end of the buffer
     ccd_frame.magic = 0xABCD;
-    ccd_frame.frame_num = frame_counter++;
-    // SCB_InvalidateDCache_by_Addr((uint32_t*)Buffer_A, CCD_BUFFER_SIZE*2); //
-    // Not needed if MPU configures SRAM3 as non-cacheable
+    ccd_frame.frame_num = frame_counter;
     memcpy(ccd_frame.pixels, (void *)Buffer_A, CCD_BUFFER_SIZE * 2);
     frame_ready = 1;
   }
@@ -283,13 +301,13 @@ void Process_USB_Command(uint8_t *buf, uint32_t len) {
       }
     }
 
-    // Clamp to valid range [15, 100] ms
+    // Clamp to valid range [15, 10000] ms
     // Minimum ~15ms to read all 3694 pixels at 250kHz
-    // Maximum 100ms for extended integration
+    // Maximum 10000ms for long-exposure / fluorescence
     if (new_time < 15)
       new_time = 15;
-    if (new_time > 100)
-      new_time = 100;
+    if (new_time > 10000)
+      new_time = 10000;
 
     integration_time_ms = new_time;
   }
@@ -331,6 +349,9 @@ int main(void) {
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -344,34 +365,54 @@ int main(void) {
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_TIM5_Init();
+  MX_I2C1_Init();
+  MX_ADC3_Init();
+  MX_TIM15_Init();
+  MX_TIM1_Init();
+  // MX_SDMMC1_SD_Init();  // Deferred — called by SD_Init() to avoid blocking
+  // MX_FATFS_Init();       // Deferred — called by SD_Init()
   /* USER CODE BEGIN 2 */
 
   // --- ESP32-STYLE BIT-BANGING INITIALIZATION ---
   HAL_Delay(1000); // Wait for USB
 
-  // Enable DWT cycle counter for precise nanosecond delays
   Enable_DWT_Counter();
-
-  // Configure PA0 (ICG) and PA2 (SH) as GPIO outputs
-  // This overrides the timer alternate function settings
   Configure_BitBang_GPIO();
 
-  // ADC Calibration
+  // ADC Calibration (CCD)
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 
-  // Start fM clock (TIM3) - this runs continuously like ESP32
+  // Start fM clock (TIM3) - 1MHz continuous
   __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
   TIM3->EGR = TIM_EGR_UG;
   __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // fM 1MHz continuous
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
-  // Start ADC trigger timer (TIM4) - runs continuously for ADC sampling
+  // Start ADC trigger timer (TIM4) - 250kHz ADC sampling
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
   TIM4->EGR = TIM_EGR_UG;
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); // ADC Trigger
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
 
   // NOTE: TIM2 (ICG) and TIM5 (SH) are NOT started - we control them via GPIO
+
+  // --- LASER PWM INIT ---
+  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
+
+  // --- ADC3 Calibration (Potentiometers) ---
+  HAL_ADCEx_Calibration_Start(&hadc3, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
+
+  // --- LCD & Menu Init ---
+  LCD_Init(&lcd, &hi2c1, 0x27, 16, 2);
+  Menu_Init(&menu_ctx, &lcd);
+  Buttons_Init();
+
+  // --- Servo Init ---
+  Servo_Init();
+
+  // --- SD Card Init (optional, non-blocking) ---
+  SD_Init(); // Returns 0 if no card present — that's OK
 
   /* USER CODE END 2 */
 
@@ -379,39 +420,51 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
   while (1) {
 
-    // ============================================
-    // BIT-BANGING + ONESHOT DMA (With Fixed Integration)
-    // ============================================
+    // --- Menu State Machine ---
+    // Returns: 0=idle, 1=run CCD (USB), 2=run CCD (auto-measure)
+    uint8_t run_ccd = Menu_Update(&menu_ctx, &lcd);
 
-    // Step 1: Flush variable integration time (from USB send)
-    // The CCD has been integrating while we were sending data over USB.
-    // That time is variable, so we dump that charge now and ignore it.
-    readCCD();
+    if (run_ccd) {
+      // ============================================
+      // CCD ACQUISITION (Run CCD or Auto-Measure)
+      // ============================================
 
-    // Step 2: Fixed Integration Time
-    // ensure CONSTANT integration time regardless of USB timing
-    // Using DWT delay for microsecond precision (HAL_Delay has 1ms jitter)
-    delay_ms_precise(integration_time_ms);
+      // Step 1: Flush variable integration
+      readCCD();
 
-    // Step 3: Arm DMA for the REAL capture
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
+      // Step 2: Fixed Integration Time
+      delay_ms_precise(integration_time_ms);
 
-    // Step 4: Trigger Readout (End of Fixed Integration)
-    // This loads the charge integrated during Step 2 into the shift register
-    readCCD();
+      // Step 3: Arm DMA
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
 
-    // Step 5: Block until DMA captures all 3694 samples
-    while (!frame_ready) {
-      // Spin-wait — DMA completion callback sets frame_ready
+      // Step 4: Trigger Readout
+      readCCD();
+
+      // Step 5: Wait for DMA
+      while (!frame_ready) { /* spin */
+      }
+
+      // Step 6: Stop DMA
+      HAL_ADC_Stop_DMA(&hadc1);
+      frame_ready = 0;
+      frame_counter++;
+
+      if (run_ccd == 1) {
+        // Normal mode: send frame over USB
+        Send_CCD_Frame_Binary();
+        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+
+        if ((frame_counter % 10) == 0) {
+          Menu_CCD_FrameUpdate(&menu_ctx, &lcd, frame_counter);
+        }
+      } else if (run_ccd == 2) {
+        // Auto-measurement mode: save frame to SD card
+        Menu_AutoMeas_OnFrame(&menu_ctx, (const uint16_t *)Buffer_A,
+                              CCD_BUFFER_SIZE);
+        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+      }
     }
-
-    // Step 4: Stop DMA (ONESHOT complete)
-    HAL_ADC_Stop_DMA(&hadc1);
-
-    // Step 5: Send frame
-    Send_CCD_Frame_Binary();
-    frame_ready = 0;
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0); // LED Heartbeat
 
     /* USER CODE END WHILE */
 
@@ -472,6 +525,30 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
+/**
+ * @brief Peripherals Common Clock Configuration
+ * @retval None
+ */
+void PeriphCommonClock_Config(void) {
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+   */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInitStruct.PLL2.PLL2M = 5;
+  PeriphClkInitStruct.PLL2.PLL2N = 80;
+  PeriphClkInitStruct.PLL2.PLL2P = 4;
+  PeriphClkInitStruct.PLL2.PLL2Q = 8;
+  PeriphClkInitStruct.PLL2.PLL2R = 2;
+  PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_2;
+  PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
+  PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
+  PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_PLL2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -541,6 +618,212 @@ static void MX_ADC1_Init(void) {
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+}
+
+/**
+ * @brief ADC3 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_ADC3_Init(void) {
+
+  /* USER CODE BEGIN ADC3_Init 0 */
+
+  /* USER CODE END ADC3_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC3_Init 1 */
+
+  /* USER CODE END ADC3_Init 1 */
+
+  /** Common config
+   */
+  hadc3.Instance = ADC3;
+  hadc3.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc3.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  hadc3.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc3.Init.LowPowerAutoWait = DISABLE;
+  hadc3.Init.ContinuousConvMode = DISABLE;
+  hadc3.Init.NbrOfConversion = 2;
+  hadc3.Init.DiscontinuousConvMode = DISABLE;
+  hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
+  hadc3.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc3.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
+  hadc3.Init.OversamplingMode = DISABLE;
+  hadc3.Init.Oversampling.Ratio = 1;
+  if (HAL_ADC_Init(&hadc3) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+   */
+  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_64CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+   */
+  sConfig.Channel = ADC_CHANNEL_11;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC3_Init 2 */
+
+  /* USER CODE END ADC3_Init 2 */
+}
+
+/**
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C1_Init(void) {
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x307075B1;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+   */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+   */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+}
+
+/**
+ * @brief SDMMC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SDMMC1_SD_Init(void) {
+
+  /* USER CODE BEGIN SDMMC1_Init 0 */
+
+  /* USER CODE END SDMMC1_Init 0 */
+
+  /* USER CODE BEGIN SDMMC1_Init 1 */
+
+  /* USER CODE END SDMMC1_Init 1 */
+  hsd1.Instance = SDMMC1;
+  hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
+  hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+  hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
+  hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+  hsd1.Init.ClockDiv = 2;
+  if (HAL_SD_Init(&hsd1) != HAL_OK) {
+    // SD card not present — this is OK, don't halt the system
+    // Error_Handler();
+  }
+  /* USER CODE BEGIN SDMMC1_Init 2 */
+
+  /* USER CODE END SDMMC1_Init 2 */
+}
+
+/**
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM1_Init(void) {
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 239;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 19999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK) {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 1500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.BreakFilter = 0;
+  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
+  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
+  sBreakDeadTimeConfig.Break2Filter = 0;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
 }
 
 /**
@@ -766,6 +1049,78 @@ static void MX_TIM5_Init(void) {
 }
 
 /**
+ * @brief TIM15 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM15_Init(void) {
+
+  /* USER CODE BEGIN TIM15_Init 0 */
+
+  /* USER CODE END TIM15_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM15_Init 1 */
+
+  /* USER CODE END TIM15_Init 1 */
+  htim15.Instance = TIM15;
+  htim15.Init.Prescaler = 0;
+  htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim15.Init.Period = 2399;
+  htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim15.Init.RepetitionCounter = 0;
+  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim15) != HAL_OK) {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim15, &sClockSourceConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim15) != HAL_OK) {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim15, &sMasterConfig) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_2) != HAL_OK) {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.BreakFilter = 0;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim15, &sBreakDeadTimeConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM15_Init 2 */
+
+  /* USER CODE END TIM15_Init 2 */
+  HAL_TIM_MspPostInit(&htim15);
+}
+
+/**
  * Enable DMA controller clock
  */
 static void MX_DMA_Init(void) {
@@ -785,15 +1140,26 @@ static void MX_DMA_Init(void) {
  * @retval None
  */
 static void MX_GPIO_Init(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pins : BTN_UP_Pin BTN_DOWN_Pin BTN_LEFT_Pin BTN_RIGHT_Pin
+                           BTN_OK_Pin */
+  GPIO_InitStruct.Pin =
+      BTN_UP_Pin | BTN_DOWN_Pin | BTN_LEFT_Pin | BTN_RIGHT_Pin | BTN_OK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -854,20 +1220,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM6) {
     HAL_IncTick();
   }
-
-  // Frame Synchronization
-  if (htim->Instance == TIM2) {
-    // ICG Pulse Started (Start of Frame)
-    // IMPORTANT: Stop any in-progress DMA before restarting
-    // Without this, frames can be dropped/corrupted at certain SH timings
-    HAL_ADC_Stop_DMA(&hadc1);
-
-    // Restart ADC DMA for One-Shot Capture
-    // This ensures we always start at index 0 aligned with ICG
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)Buffer_A, CCD_BUFFER_SIZE);
-  }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM6) {
+    Buttons_Tick(); // 1ms button polling — must stay inside USER CODE block
+  }
   /* USER CODE END Callback 1 */
 }
 
