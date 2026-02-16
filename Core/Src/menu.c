@@ -38,6 +38,7 @@ void Settings_Load(DeviceSettings *s) {
     s->laser1_pwm = 2399;      // 100% default brightness
     s->laser2_pwm = 2399;      // 100% default brightness
     s->integration_time = 300; // Default integration time
+    s->frames_per_laser = AUTO_FRAMES_DEFAULT;
     Settings_Save(s);
   }
   // Sync global
@@ -189,6 +190,9 @@ static void Render_RunCCD(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
 }
 
 static void Render_AutoMeasure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
+  // Clear LCD first to flush any corrupted I2C state from CCD readout IRQ
+  // disable
+  LCD_Clear(lcd);
   char line1[17], line2[17];
 
   switch (ctx->auto_state) {
@@ -204,12 +208,12 @@ static void Render_AutoMeasure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   case AUTO_CAPTURE_LASER1:
     snprintf(line1, sizeof(line1), "405nm Capture");
     snprintf(line2, sizeof(line2), "Frame %d/%d", ctx->auto_frame_count,
-             AUTO_FRAMES_PER_LASER);
+             ctx->settings.frames_per_laser);
     break;
   case AUTO_CAPTURE_DARK:
     snprintf(line1, sizeof(line1), "Capturing Dark");
     snprintf(line2, sizeof(line2), "Frame %d/%d", ctx->auto_frame_count,
-             AUTO_FRAMES_PER_LASER);
+             ctx->settings.frames_per_laser);
     break;
   case AUTO_MOVE_LASER2:
   case AUTO_SETTLE_LASER2:
@@ -219,7 +223,7 @@ static void Render_AutoMeasure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   case AUTO_CAPTURE_LASER2:
     snprintf(line1, sizeof(line1), "450nm Capture");
     snprintf(line2, sizeof(line2), "Frame %d/%d", ctx->auto_frame_count,
-             AUTO_FRAMES_PER_LASER);
+             ctx->settings.frames_per_laser);
     break;
   case AUTO_SAVING:
     snprintf(line1, sizeof(line1), "Saving to SD...");
@@ -299,13 +303,18 @@ static void Render_OldMeasurements(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_PrintLine(lcd, 1, buf);
 }
 
+static const char *settings_items[] = {"Laser PWM", "Integ Time", "Frames"};
+#define SETTINGS_ITEM_COUNT 3
+
 static void Render_Settings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
-  if (ctx->settings_sel == 0) {
-    LCD_PrintLine(lcd, 0, ">Laser PWM");
-    LCD_PrintLine(lcd, 1, " Integ Time");
-  } else {
-    LCD_PrintLine(lcd, 0, " Laser PWM");
-    LCD_PrintLine(lcd, 1, ">Integ Time");
+  // 2-line LCD scrolling: show sel and sel+1 (or sel-1 and sel)
+  uint8_t top = (ctx->settings_sel == 0) ? 0 : ctx->settings_sel - 1;
+  for (int i = 0; i < 2 && (top + i) < SETTINGS_ITEM_COUNT; i++) {
+    uint8_t idx = top + i;
+    char buf[17];
+    snprintf(buf, sizeof(buf), "%c%s", (idx == ctx->settings_sel) ? '>' : ' ',
+             settings_items[idx]);
+    LCD_PrintLine(lcd, i, buf);
   }
 }
 
@@ -334,6 +343,11 @@ static void Render_LaserSettings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_Print(lcd, (ctx->laser_sel == 0) ? "405nm" : "450nm");
   LCD_DrawProgressBar(lcd, 5, 0, pot_pct);
 
+  // Show percentage value on line 2
+  char buf[17];
+  snprintf(buf, sizeof(buf), "PWM: %3d%%", pot_pct);
+  LCD_PrintLine(lcd, 1, buf);
+
   laser_line2_written = 1;
 }
 
@@ -341,6 +355,13 @@ static void Render_IntegSettings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_PrintLine(lcd, 0, ">Integ Time");
   char buf[17];
   snprintf(buf, sizeof(buf), "%d ms", ctx->settings.integration_time);
+  LCD_PrintLine(lcd, 1, buf);
+}
+
+static void Render_FramesSettings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
+  LCD_PrintLine(lcd, 0, ">Frames/Laser");
+  char buf[17];
+  snprintf(buf, sizeof(buf), "%d frames", ctx->settings.frames_per_laser);
   LCD_PrintLine(lcd, 1, buf);
 }
 
@@ -417,7 +438,7 @@ static void AutoMeas_Tick(MenuContext *ctx) {
   switch (ctx->auto_state) {
   case AUTO_MOVE_LASER1:
     // Move servo to laser 1 position, turn on laser 1
-    Servo_MoveTo(0);
+    Servo_MoveAndRelease(0);
     __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, ctx->settings.laser1_pwm);
     __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
     ctx->auto_timer = now;
@@ -440,7 +461,7 @@ static void AutoMeas_Tick(MenuContext *ctx) {
     break;
 
   case AUTO_MOVE_LASER2:
-    Servo_MoveTo(1);
+    Servo_MoveAndRelease(1);
     __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
     __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, ctx->settings.laser2_pwm);
     ctx->auto_timer = now;
@@ -542,7 +563,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
           ctx->ccd_frame_count = 0;
           // Start with 405nm laser active
           ctx->active_laser = 0;
-          Servo_MoveTo(0);
+          Servo_MoveAndRelease(0);
           __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1,
                                 ctx->settings.laser1_pwm);
           __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
@@ -584,7 +605,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
       if (id == BTN_ID_UP) {
         // Switch to 405nm laser
         ctx->active_laser = 0;
-        Servo_MoveTo(0);
+        Servo_MoveAndRelease(0);
         __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, ctx->settings.laser1_pwm);
         __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
         ctx->need_redraw = 1;
@@ -592,7 +613,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
       if (id == BTN_ID_DOWN) {
         // Switch to 450nm laser
         ctx->active_laser = 1;
-        Servo_MoveTo(1);
+        Servo_MoveAndRelease(1);
         __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
         __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, ctx->settings.laser2_pwm);
         ctx->need_redraw = 1;
@@ -645,7 +666,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
             pcfg.integration_time_ms = integration_time_ms;
             pcfg.pwm_405 = ctx->settings.laser1_pwm;
             pcfg.pwm_450 = ctx->settings.laser2_pwm;
-            pcfg.frames_per_laser = AUTO_FRAMES_PER_LASER;
+            pcfg.frames_per_laser = ctx->settings.frames_per_laser;
             pcfg.timestamp = HAL_GetTick();
             SD_CreateProject(ctx->auto_proj_index, &pcfg);
           }
@@ -751,7 +772,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
         ctx->settings_sel--;
         ctx->need_redraw = 1;
       }
-      if (id == BTN_ID_DOWN && ctx->settings_sel < 1) {
+      if (id == BTN_ID_DOWN && ctx->settings_sel < (SETTINGS_ITEM_COUNT - 1)) {
         ctx->settings_sel++;
         ctx->need_redraw = 1;
       }
@@ -760,8 +781,10 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
         if (ctx->settings_sel == 0) {
           ctx->screen = SCREEN_SETTINGS_LASER;
           ctx->laser_sel = 0;
-        } else {
+        } else if (ctx->settings_sel == 1) {
           ctx->screen = SCREEN_SETTINGS_INTEG;
+        } else {
+          ctx->screen = SCREEN_SETTINGS_FRAMES;
         }
         ctx->need_redraw = 1;
       }
@@ -798,6 +821,43 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
         // Save and Exit
         Settings_Save(&ctx->settings);
         integration_time_ms = ctx->settings.integration_time;
+        ctx->screen = SCREEN_SETTINGS;
+        ctx->need_redraw = 1;
+        Buttons_Reset();
+      }
+      break;
+
+    // ---- FRAMES PER LASER SETTINGS ----
+    case SCREEN_SETTINGS_FRAMES:
+      if (id == BTN_ID_LEFT) {
+        ctx->screen = SCREEN_SETTINGS;
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_UP) {
+        // Find current index in options and go up
+        for (int i = 0; i < FRAME_COUNT_NUM_OPTIONS; i++) {
+          if (FRAME_COUNT_OPTIONS[i] == ctx->settings.frames_per_laser) {
+            if (i < FRAME_COUNT_NUM_OPTIONS - 1) {
+              ctx->settings.frames_per_laser = FRAME_COUNT_OPTIONS[i + 1];
+            }
+            break;
+          }
+        }
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_DOWN) {
+        for (int i = 0; i < FRAME_COUNT_NUM_OPTIONS; i++) {
+          if (FRAME_COUNT_OPTIONS[i] == ctx->settings.frames_per_laser) {
+            if (i > 0) {
+              ctx->settings.frames_per_laser = FRAME_COUNT_OPTIONS[i - 1];
+            }
+            break;
+          }
+        }
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_OK) {
+        Settings_Save(&ctx->settings);
         ctx->screen = SCREEN_SETTINGS;
         ctx->need_redraw = 1;
         Buttons_Reset();
@@ -867,7 +927,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   if (ctx->screen == SCREEN_AUTO_MEASURE) {
     switch (ctx->auto_state) {
     case AUTO_MOVE_LASER1:
-      Servo_MoveTo(0);
+      Servo_MoveAndRelease(0);
       ctx->auto_timer = HAL_GetTick();
       ctx->auto_state = AUTO_SETTLE_LASER1;
       ctx->need_redraw = 1;
@@ -888,7 +948,7 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
     case AUTO_MOVE_LASER2:
       // Turn OFF Laser 1 while moving
       __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
-      Servo_MoveTo(1);
+      Servo_MoveAndRelease(1);
       ctx->auto_timer = HAL_GetTick();
       ctx->auto_state = AUTO_SETTLE_LASER2;
       ctx->need_redraw = 1;
@@ -945,6 +1005,9 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
       break;
     case SCREEN_SETTINGS_INTEG:
       Render_IntegSettings(ctx, lcd);
+      break;
+    case SCREEN_SETTINGS_FRAMES:
+      Render_FramesSettings(ctx, lcd);
       break;
     case SCREEN_SETTINGS_LASER:
       break; // Handled below (throttled)
@@ -1030,13 +1093,17 @@ void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
   // -------------------------
   if (ctx->auto_state == AUTO_CAPTURE_DARK) {
     ctx->auto_frame_count++;
-    ctx->need_redraw = 1;
+    // Throttle LCD updates — only redraw every 5th frame to avoid I2C gibberish
+    if ((ctx->auto_frame_count % 5) == 0 ||
+        ctx->auto_frame_count >= ctx->settings.frames_per_laser)
+      ctx->need_redraw = 1;
 
     // Last frame for Dark Reference?
-    if (ctx->auto_frame_count >= AUTO_FRAMES_PER_LASER) {
+    if (ctx->auto_frame_count >= ctx->settings.frames_per_laser) {
       // Average for Dark baseline
       for (int i = 0; i < len; i++) {
-        ctx->dark_accum[i] = ctx->auto_accum[i] / (float)AUTO_FRAMES_PER_LASER;
+        ctx->dark_accum[i] =
+            ctx->auto_accum[i] / (float)ctx->settings.frames_per_laser;
       }
       ctx->auto_frame_count = 0;
       ctx->auto_state = AUTO_MOVE_LASER1;
@@ -1050,13 +1117,15 @@ void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
     }
 
     ctx->auto_frame_count++;
-    ctx->need_redraw = 1;
+    if ((ctx->auto_frame_count % 5) == 0 ||
+        ctx->auto_frame_count >= ctx->settings.frames_per_laser)
+      ctx->need_redraw = 1;
 
     // Last frame for Laser 1? Run Prediction
-    if (ctx->auto_frame_count >= AUTO_FRAMES_PER_LASER) {
+    if (ctx->auto_frame_count >= ctx->settings.frames_per_laser) {
       // Average the accumulator
       for (int i = 0; i < len; i++) {
-        ctx->auto_accum[i] /= (float)AUTO_FRAMES_PER_LASER;
+        ctx->auto_accum[i] /= (float)ctx->settings.frames_per_laser;
       }
 
       // Predict Chl-a
@@ -1088,13 +1157,15 @@ void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
     }
 
     ctx->auto_frame_count++;
-    ctx->need_redraw = 1;
+    if ((ctx->auto_frame_count % 5) == 0 ||
+        ctx->auto_frame_count >= ctx->settings.frames_per_laser)
+      ctx->need_redraw = 1;
 
     // Last frame for Laser 2? Run Prediction
-    if (ctx->auto_frame_count >= AUTO_FRAMES_PER_LASER) {
+    if (ctx->auto_frame_count >= ctx->settings.frames_per_laser) {
       // Average
       for (int i = 0; i < len; i++) {
-        ctx->auto_accum[i] /= (float)AUTO_FRAMES_PER_LASER;
+        ctx->auto_accum[i] /= (float)ctx->settings.frames_per_laser;
       }
 
       // Predict Chl-b

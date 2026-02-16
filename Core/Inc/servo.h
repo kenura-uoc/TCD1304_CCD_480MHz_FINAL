@@ -21,11 +21,15 @@
 #define SERVO_POS_LASER1 900   // a bit more right, laser 1 (405nm)
 #define SERVO_POS_LASER2 1500  // ~90°  — center, laser 2 (450nm) over sample
 #define SERVO_POS_NEUTRAL 1500 // ~90°  — center / rest
+#define SERVO_SETTLE_MS                                                        \
+  500 // Time (ms) for servo to reach position before PWM off
 
 void Servo_Init(void);
 void Servo_SetPulse(uint16_t pulse);    // Raw pulse (1000-2000)
 void Servo_SetAngle(uint8_t angle_deg); // 0-180°
-void Servo_MoveTo(uint8_t position);    // 0=laser1, 1=laser2
-void Servo_Disable(void);               // Stop PWM (servo relaxes)
+void Servo_MoveTo(uint8_t position);    // 0=laser1, 1=laser2 (PWM stays on)
+void Servo_MoveAndRelease(
+    uint8_t position);    // Move, wait settle, then disable PWM
+void Servo_Disable(void); // Stop PWM (servo relaxes, 0mA)
 
 #endif // SERVO_H

@@ -22,8 +22,9 @@ typedef enum {
   SCREEN_OLD_MEASUREMENTS,
   SCREEN_OLD_MEAS_VIEW,
   SCREEN_SETTINGS,
-  SCREEN_SETTINGS_LASER, // Sub-screen: adjust laser PWM
-  SCREEN_SETTINGS_INTEG, // Sub-screen: adjust integration time
+  SCREEN_SETTINGS_LASER,  // Sub-screen: adjust laser PWM
+  SCREEN_SETTINGS_INTEG,  // Sub-screen: adjust integration time
+  SCREEN_SETTINGS_FRAMES, // Sub-screen: adjust frames per laser
 } ScreenState;
 
 // Number of main menu items
@@ -40,14 +41,19 @@ typedef struct {
 } MeasurementRecord;
 
 // --- Persistent settings (saved to backup SRAM) ---
-#define SETTINGS_MAGIC 0xCB00 // Bumped — servo fields removed
+#define SETTINGS_MAGIC 0xCB01 // Bumped — frames_per_laser added
 
 typedef struct {
   uint16_t magic;            // Identifies valid settings
   uint16_t laser1_pwm;       // 405nm duty (0-2399)
   uint16_t laser2_pwm;       // 450nm duty (0-2399)
   uint16_t integration_time; // CCD Integration time in ms
+  uint16_t frames_per_laser; // Frames to capture per laser in auto-measure
 } DeviceSettings;
+
+// Valid frame count options for auto-measure settings
+static const uint16_t FRAME_COUNT_OPTIONS[] = {5, 10, 15, 20, 30, 40, 50, 100};
+#define FRAME_COUNT_NUM_OPTIONS 8
 
 // --- Auto-measurement sub-states ---
 typedef enum {
@@ -63,8 +69,8 @@ typedef enum {
   AUTO_COMPLETE,       // Done, showing results
 } AutoMeasState;
 
-#define AUTO_FRAMES_PER_LASER 5 // Number of CCD frames to collect per laser
-#define SERVO_SETTLE_MS 500     // Time to wait for servo to reach position
+#define AUTO_FRAMES_DEFAULT 5 // Default number of CCD frames per laser
+#define SERVO_SETTLE_MS 500   // Time to wait for servo to reach position
 
 // --- Menu context (global state) ---
 typedef struct {

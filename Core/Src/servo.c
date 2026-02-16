@@ -12,8 +12,10 @@ extern TIM_HandleTypeDef htim1;
 void Servo_Init(void) {
   // Start PWM on TIM1 CH1
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  // Start at neutral position
+  // Move to neutral, let it settle, then kill PWM to save power
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, SERVO_POS_NEUTRAL);
+  HAL_Delay(SERVO_SETTLE_MS);
+  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 }
 
 void Servo_SetPulse(uint16_t pulse) {
@@ -22,6 +24,8 @@ void Servo_SetPulse(uint16_t pulse) {
     pulse = 500;
   if (pulse > 2500)
     pulse = 2500;
+  // Re-enable PWM if it was stopped
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pulse);
 }
 
@@ -39,6 +43,12 @@ void Servo_MoveTo(uint8_t position) {
   } else {
     Servo_SetPulse(SERVO_POS_LASER2);
   }
+}
+
+void Servo_MoveAndRelease(uint8_t position) {
+  Servo_MoveTo(position);
+  HAL_Delay(SERVO_SETTLE_MS);
+  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 }
 
 void Servo_Disable(void) { HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1); }

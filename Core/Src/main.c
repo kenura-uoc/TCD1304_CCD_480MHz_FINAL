@@ -449,8 +449,15 @@ int main(void) {
       // Step 4: Trigger Readout
       readCCD();
 
-      // Step 5: Wait for DMA
-      while (!frame_ready) { /* spin */
+      // Step 5: Wait for DMA with timeout (prevents permanent freeze)
+      {
+        uint32_t dma_timeout_start = HAL_GetTick();
+        while (!frame_ready) {
+          if ((HAL_GetTick() - dma_timeout_start) > 200) {
+            // DMA timed out — break to process frame (advances counter)
+            break;
+          }
+        }
       }
 
       // Step 6: Stop DMA
@@ -473,7 +480,8 @@ int main(void) {
         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
       }
     }
-
+  skip_frame: // DMA timeout jumps here — re-enters loop so buttons work
+    (void)0;  // Label needs a statement
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
