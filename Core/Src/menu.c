@@ -1093,8 +1093,10 @@ void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
   // -------------------------
   if (ctx->auto_state == AUTO_CAPTURE_DARK) {
     ctx->auto_frame_count++;
-    // Throttle LCD updates — only redraw every 5th frame to avoid I2C gibberish
-    if ((ctx->auto_frame_count % 5) == 0 ||
+    // Throttle LCD updates — only redraw every 5th frame if we have many frames
+    // If we have few frames (<= 20), show every frame for better feedback
+    if (ctx->settings.frames_per_laser <= 20 ||
+        (ctx->auto_frame_count % 5) == 0 ||
         ctx->auto_frame_count >= ctx->settings.frames_per_laser)
       ctx->need_redraw = 1;
 
