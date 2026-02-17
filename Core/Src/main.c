@@ -424,6 +424,7 @@ int main(void) {
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  static uint32_t last_lcd_update = 0;
   while (1) {
 
     // --- Menu State Machine ---
@@ -470,8 +471,9 @@ int main(void) {
         Send_CCD_Frame_Binary();
         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
 
-        if ((frame_counter % 10) == 0) {
+        if (HAL_GetTick() - last_lcd_update > 100) {
           Menu_CCD_FrameUpdate(&menu_ctx, &lcd, frame_counter);
+          last_lcd_update = HAL_GetTick();
         }
       } else if (run_ccd == 2) {
         // Auto-measurement mode: save frame to SD card
