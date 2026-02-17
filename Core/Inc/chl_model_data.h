@@ -6,7 +6,7 @@
  * Chl-b: PCA (32 components) + SVR (RBF, 63 support vectors)
  * Features: 1900 (pixels 1300-3200)
  *
- * DO NOT EDIT — regenerate with: python model2/export_model.py
+ * DO NOT EDIT — regenerate with: python ml_model/export_model.py
  */
 
 #ifndef CHL_MODEL_DATA_H

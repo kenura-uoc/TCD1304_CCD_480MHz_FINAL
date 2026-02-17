@@ -163,7 +163,7 @@ lines.append(f"Max abs diff:        {np.abs(l1_010 - npz405).max():.0f}")
 fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
 # Load a training sample for comparison
-train_dir = BASE + r'\model2\chla2'
+train_dir = BASE + r'\ml_model\chla2'
 if os.path.exists(train_dir):
     train_files = sorted([f for f in os.listdir(train_dir) if f.endswith('.csv')])
     if train_files:

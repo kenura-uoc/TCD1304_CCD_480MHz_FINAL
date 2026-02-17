@@ -134,6 +134,32 @@ static chl_status_t common_preprocess(chl_predictor_t *pred,
     pred->buf_a[i] = (bg_val - avg_spectrum[i]) / integration_ms;
   }
 
+  /* Step 0.5: Despiking (Median Filter - Window 3) */
+  /* Removes single-pixel electrical noise/spikes before smoothing. */
+  for (i = 1; i < FULL_SPECTRUM_LEN - 1; i++) {
+    float a = pred->buf_a[i - 1];
+    float b = pred->buf_a[i];
+    float c = pred->buf_a[i + 1];
+    float median;
+
+    if ((a <= b && b <= c) || (c <= b && b <= a))
+      median = b;
+    else if ((b <= a && a <= c) || (c <= a && a <= b))
+      median = a;
+    else
+      median = c;
+
+    pred->buf_b[i] = median;
+  }
+  /* Handle edges */
+  pred->buf_b[0] = pred->buf_a[0];
+  pred->buf_b[FULL_SPECTRUM_LEN - 1] = pred->buf_a[FULL_SPECTRUM_LEN - 1];
+
+  /* Copy back to buf_a for next step */
+  for (i = 0; i < FULL_SPECTRUM_LEN; i++) {
+    pred->buf_a[i] = pred->buf_b[i];
+  }
+
   /* Step 1: SG smoothing (Full Spectrum) */
   apply_sg_filter(pred->buf_a, pred->buf_b, FULL_SPECTRUM_LEN, SG_SMOOTH_COEFFS,
                   SG_SMOOTH_WINDOW, SG_SMOOTH_HALF);

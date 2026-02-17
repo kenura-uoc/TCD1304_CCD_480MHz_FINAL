@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-export_model.py — Train Chl-a (PLS) and Chl-b (PCA+SVR) models from model2 data,
+export_model.py — Train Chl-a (PLS) and Chl-b (PCA+SVR) models from ml_model data,
 then export all parameters to a single C header file for STM32 inference.
 
 Usage:
-    cd model2/
+    cd ml_model/
     python export_model.py
 
 Outputs:
@@ -251,7 +251,7 @@ def generate_header(pls_model, chlb_pipeline, sg_smooth, sg_deriv, n_features):
     lines.append(f" * Chl-b: PCA ({n_pca} components) + SVR (RBF, {n_sv} support vectors)")
     lines.append(f" * Features: {n_features} (pixels {ROI_START}-{ROI_END})")
     lines.append(" *")
-    lines.append(" * DO NOT EDIT — regenerate with: python model2/export_model.py")
+    lines.append(" * DO NOT EDIT — regenerate with: python ml_model/export_model.py")
     lines.append(" */")
     lines.append("")
     lines.append("#ifndef CHL_MODEL_DATA_H")
