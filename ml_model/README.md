@@ -68,11 +68,11 @@ Only pixels **1300–3200** (1900 features) are kept. This region contains the u
 | `chla2_pls_model.py` | Trains Chl-a PLS model |
 | `chlb2_pls.py` | Trains Chl-b PCA+SVR model |
 | `export_model.py` | Trains both models & exports parameters to C header for STM32 |
-| `chladata.xlsx` | Chl-a sample metadata (concentrations, integration times) |
-| `chlb.xlsx` | Chl-b sample metadata |
-| `chla2/` | Raw CCD spectra for Chl-a samples |
-| `chlb2/` | Raw CCD spectra for Chl-b samples |
-| `../background_data/` | Background spectra at various integration times |
+| `data/real_data/chla_data.csv` | Chl-a sample metadata (concentrations, integration times) |
+| `data/real_data/chlb_data.csv` | Chl-b sample metadata |
+| `data/chl_a/` | Raw CCD spectra for Chl-a samples |
+| `data/chl_b/` | Raw CCD spectra for Chl-b samples |
+| `data/background_data/` | Background spectra at various integration times |
 
 ## STM32 Deployment
 

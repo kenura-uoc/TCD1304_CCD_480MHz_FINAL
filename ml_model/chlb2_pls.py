@@ -17,8 +17,10 @@ warnings.filterwarnings("ignore")
 # ============================================================
 # CONFIGURATION
 # ============================================================
-DATA_DIR = Path(r"C:\Users\user\Downloads\data files of project\chlb2")
-EXCEL_FILE = DATA_DIR / "chlb.xlsx"
+DATA_DIR = Path(__file__).parent / "data/chl_b"
+CSV_FILE = Path(__file__).parent / "data/real_data/chlb_data.csv"
+
+BACKGROUND_DIR = Path(__file__).parent / "data/background_data"
 
 BACKGROUND_MAP = {
     1000: "background-1000.csv",
@@ -34,14 +36,26 @@ RANDOM_STATE = 42
 # ============================================================
 # 1. DATA LOADING FUNCTIONS
 # ============================================================
-def load_reference_data(excel_path):
-    df = pd.read_excel(excel_path, header=None, skiprows=2)
-    df.columns = ["sample", "concentration", "integration_time"]
-    df["sample_num"] = df["sample"].str.extract(r"(\d+)").astype(int)
+def load_reference_data(csv_path):
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception as e:
+        print(f"Error reading {csv_path}: {e}")
+        return pd.DataFrame()
+
+    # Clean up column names just in case
+    df.columns = [c.lower().strip() for c in df.columns]
+
+    if "sample" in df.columns:
+        df["sample_num"] = df["sample"].astype(str).str.extract(r"(\d+)").astype(float).astype(int)
+    
     df["concentration"] = pd.to_numeric(df["concentration"], errors="coerce")
-    df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
-    df = df.dropna(subset=["concentration", "integration_time"])
-    return df.sort_values("sample_num").reset_index(drop=True)
+    if "integration_time" in df.columns:
+        df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
+    else:
+        df["integration_time"] = 1000
+
+    return df.dropna(subset=["concentration"]).sort_values("sample_num").reset_index(drop=True)
 
 def load_and_average_spectrum(csv_path):
     df = pd.read_csv(csv_path)
@@ -52,7 +66,7 @@ def load_and_average_spectrum(csv_path):
 def load_background(integration_time):
     bg_file = BACKGROUND_MAP.get(integration_time)
     if bg_file is None: return None
-    bg_path = DATA_DIR / bg_file
+    bg_path = BACKGROUND_DIR / bg_file
     return load_and_average_spectrum(bg_path) if bg_path.exists() else None
 
 # ============================================================
@@ -99,7 +113,7 @@ def build_dataset(ref_data):
 # ============================================================
 if __name__ == "__main__":
     # Load and Split
-    ref_data = load_reference_data(EXCEL_FILE)
+    ref_data = load_reference_data(CSV_FILE)
     X, y = build_dataset(ref_data)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 

@@ -29,12 +29,12 @@ from sklearn.metrics import r2_score, mean_squared_error
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
 
-CHLA_DATA_DIR = SCRIPT_DIR / "chla2"
-CHLB_DATA_DIR = SCRIPT_DIR / "chlb2"
-BACKGROUND_DIR = PROJECT_DIR / "background_data"
+CHLA_DATA_DIR = SCRIPT_DIR / "data/chl_a"
+CHLB_DATA_DIR = SCRIPT_DIR / "data/chl_b"
+BACKGROUND_DIR = SCRIPT_DIR / "data/background_data"
 
-CHLA_EXCEL = SCRIPT_DIR / "chladata.xlsx"
-CHLB_EXCEL = SCRIPT_DIR / "chlb.xlsx"
+CHLA_CSV = SCRIPT_DIR / "data/real_data/chla_data.csv"
+CHLB_CSV = SCRIPT_DIR / "data/real_data/chlb_data.csv"
 
 OUTPUT_HEADER = PROJECT_DIR / "Core" / "Inc" / "chl_model_data.h"
 
@@ -81,14 +81,40 @@ CHLB_BACKGROUND_MAP = {
 # DATA LOADING
 # ============================================================
 
-def load_reference_data(excel_path):
-    df = pd.read_excel(excel_path, header=None, skiprows=2)
-    df.columns = ["sample", "concentration", "integration_time"]
-    df["sample_num"] = df["sample"].str.extract(r"(\d+)").astype(int)
+def load_reference_data(csv_path):
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception as e:
+        print(f"Error reading {csv_path}: {e}")
+        return pd.DataFrame()
+    
+    # Normalize column names
+    df.columns = [c.lower().strip() for c in df.columns]
+    
+    # Handle column aliases
+    if "solution num" in df.columns:
+        df.rename(columns={"solution num": "sample"}, inplace=True)
+    if "sample con" in df.columns:
+        df.rename(columns={"sample con": "concentration"}, inplace=True)
+    if "integration time(ms)" in df.columns:
+        df.rename(columns={"integration time(ms)": "integration_time"}, inplace=True)
+
+    # Extract sample number
+    if "sample" in df.columns:
+        df["sample_num"] = df["sample"].astype(str).str.extract(r"(\d+)").astype(float).astype(int)
+    else:
+        print(f"Warning: 'sample' column missing in {csv_path}. Columns found: {df.columns}")
+        return pd.DataFrame()
+
+    # Convert numeric columns
     df["concentration"] = pd.to_numeric(df["concentration"], errors="coerce")
-    df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
-    df = df.dropna(subset=["concentration", "integration_time"])
-    return df.sort_values("sample_num").reset_index(drop=True)
+    
+    if "integration_time" in df.columns:
+        df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
+    else:
+        df["integration_time"] = 1000  # Default if missing
+
+    return df.dropna(subset=["concentration"]).sort_values("sample_num").reset_index(drop=True)
 
 
 def load_and_average_spectrum(csv_path):
@@ -133,7 +159,11 @@ def build_dataset(ref_data, data_dir, bg_map, closest_bg):
 
         csv_path = data_dir / f"{sample_num}.csv"
         if not csv_path.exists():
+            # print(f"Missing file: {csv_path}") # Uncomment if needed, but might spam
             continue
+        else:
+            if len(X_list) < 3:
+                print(f"Found file: {csv_path}")
 
         spectrum = load_and_average_spectrum(csv_path)
 
@@ -334,7 +364,9 @@ if __name__ == "__main__":
 
     # --- Train Chl-a PLS ---
     print("\n[1/4] Loading Chl-a data...")
-    chla_ref = load_reference_data(CHLA_EXCEL)
+    chla_ref = load_reference_data(CHLA_CSV)
+    print(chla_ref.head())
+    print(f"Data Dir: {CHLA_DATA_DIR}")
     X_a, y_a = build_dataset(chla_ref, CHLA_DATA_DIR, CHLA_BACKGROUND_MAP, CHLA_CLOSEST_BG)
     print(f"  Samples: {len(y_a)}, Features: {X_a.shape[1]}")
 
@@ -354,7 +386,7 @@ if __name__ == "__main__":
 
     # --- Train Chl-b PCA+SVR ---
     print(f"\n[3/4] Loading Chl-b data...")
-    chlb_ref = load_reference_data(CHLB_EXCEL)
+    chlb_ref = load_reference_data(CHLB_CSV)
     X_b, y_b = build_dataset(chlb_ref, CHLB_DATA_DIR, CHLB_BACKGROUND_MAP, {})
     print(f"  Samples: {len(y_b)}, Features: {X_b.shape[1]}")
 

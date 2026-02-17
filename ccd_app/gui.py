@@ -38,8 +38,10 @@ class MainWindow:
         
         # Model Inference
         # Assuming app is run from root or ccd_app, check various paths
-        # Search priorities: ./ml_model, ../ml_model
+        # Search priorities: ./ml_model/models, ../ml_model/models
         possible_paths = [
+            os.path.join(os.getcwd(), "ml_model", "models"),
+            os.path.join(os.getcwd(), "..", "ml_model", "models"),
             os.path.join(os.getcwd(), "ml_model"),
             os.path.join(os.getcwd(), "..", "ml_model")
         ]

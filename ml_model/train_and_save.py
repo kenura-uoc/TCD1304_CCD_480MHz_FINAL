@@ -15,15 +15,16 @@ from sklearn.model_selection import train_test_split
 # CONFIGURATION
 # ============================================================
 SCRIPT_DIR = Path(__file__).parent.resolve()
-DATA_DIR_A = SCRIPT_DIR / "chla2"
-DATA_DIR_B = SCRIPT_DIR / "chlb2"
-BACKGROUND_DIR = SCRIPT_DIR.parent / "background_data"
+DATA_DIR_A = SCRIPT_DIR / "data/chl_a"
+DATA_DIR_B = SCRIPT_DIR / "data/chl_b"
+BACKGROUND_DIR = SCRIPT_DIR / "data/background_data"
 
-EXCEL_A = SCRIPT_DIR / "chladata.xlsx"
-EXCEL_B = SCRIPT_DIR / "chlb.xlsx"
+# Using CSV metadata instead of Excel
+CSV_A = SCRIPT_DIR / "data/real_data/chla_data.csv"
+CSV_B = SCRIPT_DIR / "data/real_data/chlb_data.csv"
 
-OUTPUT_MODEL_A = SCRIPT_DIR / "chla_model.pkl"
-OUTPUT_MODEL_B = SCRIPT_DIR / "chlb_model.pkl"
+OUTPUT_MODEL_A = SCRIPT_DIR / "models/chla_model.pkl"
+OUTPUT_MODEL_B = SCRIPT_DIR / "models/chlb_model.pkl"
 
 # Constants
 PLS_N_COMPONENTS_A = 9
@@ -87,12 +88,38 @@ def preprocess(spectrum):
 def crop(spectrum):
     return spectrum[ROI_START:ROI_END]
 
-def build_dataset(excel_path, data_dir, bg_map, closest_map):
-    df = pd.read_excel(excel_path, header=None, skiprows=2)
-    df.columns = ["sample", "concentration", "integration_time"]
-    df["sample_num"] = df["sample"].str.extract(r"(\d+)").astype(int)
+def build_dataset(csv_path, data_dir, bg_map, closest_map):
+    # Load metadata from CSV
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception as e:
+        print(f"Error reading {csv_path}: {e}")
+        return np.array([]), np.array([])
+
+    # Ensure columns match expected names (adjust if CSV headers differ)
+    # Expected: sample, concentration, integration_time
+    if "sample" not in df.columns or "concentration" not in df.columns:
+        # Fallback for headerless or different names - inspect CSV structure if needed
+        # For now assuming headers exist as in previous excel logic but adapting
+        # If no headers, might need header=None and names=[...]
+        pass
+    
+    # Clean up column names just in case
+    df.columns = [c.lower().strip() for c in df.columns]
+    
+    # Extract sample number
+    if "sample" in df.columns:
+        df["sample_num"] = df["sample"].astype(str).str.extract(r"(\d+)").astype(float).astype(int)
+    else:
+        # If 'sample' col missing, try to infer or error
+        print("Column 'sample' not found in CSV")
+        return np.array([]), np.array([])
+
     df["concentration"] = pd.to_numeric(df["concentration"], errors="coerce")
-    df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
+    if "integration_time" in df.columns:
+         df["integration_time"] = pd.to_numeric(df["integration_time"], errors="coerce")
+    else:
+        df["integration_time"] = 1000 # Default if missing
     df = df.dropna(subset=["concentration", "integration_time"])
     
     X = []
@@ -140,7 +167,7 @@ def build_dataset(excel_path, data_dir, bg_map, closest_map):
 def train_and_save():
     print("Training Chl A Model...")
     # 1. Base Data
-    Xa, ya = build_dataset(EXCEL_A, DATA_DIR_A, BACKGROUND_MAP_A, CLOSEST_BG_A)
+    Xa, ya = build_dataset(CSV_A, DATA_DIR_A, BACKGROUND_MAP_A, CLOSEST_BG_A)
     
     # 2. Append NPZ Data (New Samples)
     npz_path = SCRIPT_DIR.parent / "dataset.npz"
@@ -202,7 +229,7 @@ def train_and_save():
         print("No data for Chl A")
 
     print("Training Chl B Model...")
-    Xb, yb = build_dataset(EXCEL_B, DATA_DIR_B, BACKGROUND_MAP_B, {})
+    Xb, yb = build_dataset(CSV_B, DATA_DIR_B, BACKGROUND_MAP_B, {})
     
     # 2. Append NPZ Data (Chl B)
     if npz_path.exists():
