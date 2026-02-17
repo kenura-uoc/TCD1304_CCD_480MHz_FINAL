@@ -74,19 +74,22 @@ def load_bg(int_time, bg_map, closest_map, bg_dir):
     if not path.exists(): return None
     return load_spectrum(path)
 
-def preprocess(spectrum):
-    # Savitzky-Golay Smooth
-    smoothed = savgol_filter(spectrum, window_length=11, polyorder=2)
-    # First Deriv
-    deriv = savgol_filter(smoothed, window_length=11, polyorder=3, deriv=1)
-    # SNV
+def preprocess_spectrum(spectrum, roi_start=ROI_START, roi_end=ROI_END):
+    # 1. Slice ROI FIRST (Remove dummy pixels)
+    sliced = spectrum[roi_start:roi_end]
+    
+    # 2. Savitzky-Golay Smoothing
+    smoothed = savgol_filter(sliced, window_length=SG_SMOOTH_WINDOW, polyorder=SG_SMOOTH_POLY)
+    
+    # 3. Savitzky-Golay Derivative
+    deriv = savgol_filter(smoothed, window_length=SG_DERIV_WINDOW, polyorder=SG_DERIV_POLY, deriv=SG_DERIV_ORDER)
+    
+    # 4. SNV (Standard Normal Variate) on ROI data
     mean = np.mean(deriv)
     std = np.std(deriv)
     snv = (deriv - mean) / (std + 1e-8)
+    
     return snv
-
-def crop(spectrum):
-    return spectrum[ROI_START:ROI_END]
 
 def build_dataset(csv_path, data_dir, bg_map, closest_map):
     # Load metadata from CSV
@@ -144,19 +147,20 @@ def build_dataset(csv_path, data_dir, bg_map, closest_map):
             min_len = min(len(spec), len(bg))
             spec = spec[:min_len] - bg[:min_len]
             
-        # Normalization
-        spec = spec / (it + 1e-8)
-        
-        processed = preprocess(spec)
-        cropped = crop(processed)
-        
-        X.append(cropped)
-        y.append(conc)
+            # Normalize by integration time
+            spec = spec / (it + 1e-8)
+
+            # Preprocess (Slice -> Smooth -> Deriv -> SNV)
+            processed = preprocess_spectrum(spec, ROI_START, ROI_END)
+            
+            X.append(processed)
+            y.append(conc)
         
     # Handle lengths
     if not X: return np.array([]), np.array([])
-    min_len = min(len(x) for x in X)
-    X = np.array([x[:min_len] for x in X])
+    # All processed spectra should already be the same length due to ROI slicing
+    # min_len = min(len(x) for x in X) # This line is no longer strictly necessary if preprocess_spectrum handles slicing
+    X = np.array(X)
     y = np.array(y)
     return X, y
 

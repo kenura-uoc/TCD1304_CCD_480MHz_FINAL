@@ -139,9 +139,17 @@ def load_background(integration_time, bg_map, closest_bg, bg_dir):
 # PREPROCESSING (identical to training scripts)
 # ============================================================
 
-def preprocess_spectrum(spectrum):
-    smoothed = savgol_filter(spectrum, window_length=SG_SMOOTH_WINDOW, polyorder=SG_SMOOTH_POLY)
+def preprocess_spectrum(spectrum, roi_start=ROI_START, roi_end=ROI_END):
+    # 1. Slice ROI FIRST (Remove dummy pixels)
+    sliced = spectrum[roi_start:roi_end]
+    
+    # 2. Savitzky-Golay Smoothing
+    smoothed = savgol_filter(sliced, window_length=SG_SMOOTH_WINDOW, polyorder=SG_SMOOTH_POLY)
+    
+    # 3. Savitzky-Golay Derivative
     deriv = savgol_filter(smoothed, window_length=SG_DERIV_WINDOW, polyorder=SG_DERIV_POLY, deriv=SG_DERIV_ORDER)
+    
+    # 4. SNV (Standard Normal Variate) on ROI data
     mean = np.mean(deriv)
     std = np.std(deriv)
     snv = (deriv - mean) / (std + 1e-8)
@@ -159,11 +167,7 @@ def build_dataset(ref_data, data_dir, bg_map, closest_bg):
 
         csv_path = data_dir / f"{sample_num}.csv"
         if not csv_path.exists():
-            # print(f"Missing file: {csv_path}") # Uncomment if needed, but might spam
             continue
-        else:
-            if len(X_list) < 3:
-                print(f"Found file: {csv_path}")
 
         spectrum = load_and_average_spectrum(csv_path)
 
@@ -173,13 +177,15 @@ def build_dataset(ref_data, data_dir, bg_map, closest_bg):
         if bg is not None:
             min_len = min(len(spectrum), len(bg))
             spectrum = spectrum[:min_len] - bg[:min_len]
-
-        spectrum = spectrum / (int_time + 1e-8)
-        processed = preprocess_spectrum(spectrum)
-        processed = processed[ROI_START:ROI_END]
-
-        X_list.append(processed)
-        y_list.append(concentration)
+            
+            # Normalize
+            spectrum = spectrum / (int_time + 1e-8)
+            
+            # Preprocess
+            processed = preprocess_spectrum(spectrum, ROI_START, ROI_END)
+            
+            X_list.append(processed)
+            y_list.append(concentration)
 
     min_features = min(len(x) for x in X_list)
     X = np.array([x[:min_features] for x in X_list])
@@ -365,8 +371,6 @@ if __name__ == "__main__":
     # --- Train Chl-a PLS ---
     print("\n[1/4] Loading Chl-a data...")
     chla_ref = load_reference_data(CHLA_CSV)
-    print(chla_ref.head())
-    print(f"Data Dir: {CHLA_DATA_DIR}")
     X_a, y_a = build_dataset(chla_ref, CHLA_DATA_DIR, CHLA_BACKGROUND_MAP, CHLA_CLOSEST_BG)
     print(f"  Samples: {len(y_a)}, Features: {X_a.shape[1]}")
 

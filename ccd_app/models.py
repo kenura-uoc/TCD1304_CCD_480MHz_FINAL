@@ -34,24 +34,24 @@ class ModelInference:
             log(f"Error loading models: {e}", "ERROR")
 
     def preprocess(self, spectrum, integration_time_ms):
-        # 1. Normalize by Integration Time
+        # 0. Normalize by Integration Time (Full Spectrum first)
         norm = spectrum / (integration_time_ms + 1e-8)
+
+        # 1. ROI Slice (1300-3200) - REMOVE DUMMY PIXELS
+        sliced = norm[self.roi_start:self.roi_end]
         
-        # 2. Savitzky-Golay Smooth
-        smoothed = savgol_filter(norm, window_length=11, polyorder=2)
+        # 2. Savitzky-Golay Smooth (On ROI)
+        smoothed = savgol_filter(sliced, window_length=11, polyorder=2)
         
-        # 3. First Derivative
+        # 3. First Derivative (On ROI)
         deriv = savgol_filter(smoothed, window_length=11, polyorder=3, deriv=1)
         
-        # 4. SNV
+        # 4. SNV (On ROI)
         mean = np.mean(deriv)
         std = np.std(deriv)
         snv = (deriv - mean) / (std + 1e-8)
         
-        # 5. Crop ROI
-        cropped = snv[self.roi_start:self.roi_end]
-        
-        return cropped.reshape(1, -1) # Reshape for sklearn
+        return snv.reshape(1, -1)
 
     def predict_chla(self, spectrum, dark_frame, integration_time_ms):
         if not self.chla_model: return None
