@@ -9,6 +9,21 @@ This system predicts **Chl-a** and **Chl-b** concentrations from raw TCD1304 CCD
 | **Chl-a** | Laser 1 (405 nm) | PLS Regression | 9 components, scale=True |
 | **Chl-b** | Laser 2 (450 nm) | PCA + SVR | PCA(98% var) → SVR(rbf, C=10, ε=0.01) |
 
+## Spectral Characteristics & Model Selection
+
+### Key Features Explained
+*   **Peak Position (Red Shift)**: As concentration increases, the fluorescence peak naturally shifts to higher wavelengths (higher pixel indices) due to the **Inner Filter Effect (IFE)** and re-absorption.
+    *   *Interpretation*: This shift is a **valuable feature**. A static peak model might fail, but our models (PLS/SVR) use the entire spectrum, so they learn to correlate this shift with concentration.
+*   **FWHM (Full Width at Half Maximum)**: This measures the "width" of the fluorescence peak at half its maximum height. 
+    *   *Interpretation*: Broader peaks (higher FWHM) can indicate higher concentration effects or sensor saturation characteristics.
+*   **Consistency**: While the *exact position* shifts, the **general shape** remains Gaussian-like. This consistency ensures the model doesn't overfit to noise.
+
+### Why PLS/SVR?
+Partial Least Squares (PLS) and SVR are ideal here because:
+1.  **Full Spectrum Analysis**: They don't just look at one peak pixel (which moves!). They look at the covariance of the *entire* spectral curve.
+2.  **Handling Shifts**: The "Red Shift" is non-linear for a single pixel but creates a linear-like shift in the multivariate space that PLS can capture.
+3.  **Noise Tolerance**: By using 3000+ pixels, random noise cancels out, while the true spectral signal (the shape and position) remains strong.
+
 ## Data Analysis Pipeline
 
 Each raw spectrum (3694 pixels from the CCD) goes through the following steps:
