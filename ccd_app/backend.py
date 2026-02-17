@@ -4,7 +4,7 @@ import struct
 import numpy as np
 import threading
 import time
-from .utils import log
+from utils import log
 
 # ==========================================
 # CONSTANTS

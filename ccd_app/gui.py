@@ -6,11 +6,11 @@ import os
 import serial.tools.list_ports
 from datetime import datetime
 
-from .utils import log, SettingsManager, ProjectManager
-from .backend import CCDReceiver, CCD_PIXELS
-from .processing import Calibration, PeakDetector
-from .data import DataManager
-from .models import ModelInference
+from utils import log, SettingsManager, ProjectManager
+from backend import CCDReceiver, CCD_PIXELS
+from processing import Calibration, PeakDetector
+from data import DataManager
+from models import ModelInference
 
 class MainWindow:
     def __init__(self):
@@ -37,8 +37,19 @@ class MainWindow:
         self.data_mgr = DataManager(self.project_mgr.get_recording_dir())
         
         # Model Inference
-        # Assuming app is run from root, models are in ml_model/
-        model_path = os.path.join(os.getcwd(), "ml_model")
+        # Assuming app is run from root or ccd_app, check various paths
+        # Search priorities: ./ml_model, ../ml_model
+        possible_paths = [
+            os.path.join(os.getcwd(), "ml_model"),
+            os.path.join(os.getcwd(), "..", "ml_model")
+        ]
+        
+        model_path = possible_paths[0]
+        for p in possible_paths:
+            if os.path.exists(p):
+                model_path = p
+                break
+                
         self.model_inference = ModelInference(model_path)
         
         # UI State
@@ -60,6 +71,9 @@ class MainWindow:
         self.manual_collecting = False
         self.manual_target_count = 0
         
+        # Sidebar State
+        self.sidebar_width = 320
+        
         self.pred_conc_a = 0.0
         self.pred_conc_b = 0.0
         
@@ -67,6 +81,10 @@ class MainWindow:
         self.t.start()
         
         self.setup_ui()
+        from utils import LogManager
+        mgr = LogManager.get()
+        mgr.ui_ready = True
+        mgr.refresh_ui()  # Show initial logs immediately
         self.refresh_history_list()
         self.refresh_ports()
         
@@ -472,7 +490,7 @@ class MainWindow:
             with dpg.group(horizontal=True):
                 
                 # SIDEBAR
-                with dpg.child_window(width=320, tag="sidebar"):
+                with dpg.child_window(width=self.sidebar_width, tag="sidebar"):
                     with dpg.tab_bar():
                         
                         # CONTROLS TAB
@@ -507,24 +525,26 @@ class MainWindow:
                             dpg.add_text("Signal Processing")
                             dpg.add_slider_int(label="Avg Frames", default_value=self.receiver.frame_avg_count, min_value=1, max_value=20,
                                               callback=lambda s,a: [setattr(self.receiver, 'frame_avg_count', a), self.save_settings()])
-                                              
+                            
+                            dpg.add_checkbox(label="Enable SavGol Smoothing", default_value=self.peak_detector.use_smoothing,
+                                            callback=lambda s,a: [setattr(self.peak_detector, 'use_smoothing', a), self.save_settings()])
+                            dpg.add_slider_int(label="Smooth Window", default_value=self.peak_detector.smooth_window, min_value=3, max_value=51,
+                                            callback=lambda s,a: [setattr(self.peak_detector, 'smooth_window', a), self.save_settings()])
+                            
+                            dpg.add_separator()
+                            dpg.add_text("Display Settings")
+                            dpg.add_checkbox(label="Hide Dummy Pixels", default_value=self.remove_dummies,
+                                            callback=lambda s,a: [setattr(self, 'remove_dummies', a), self.save_settings()])
+                            dpg.add_slider_int(label="Y Max Scale", default_value=self.y_max, min_value=1000, max_value=65535,
+                                            callback=lambda s,a: [setattr(self, 'y_max', a), self.save_settings()])
+                            
                             dpg.add_separator()
                             dpg.add_text("Recording")
                             dpg.add_combo([], tag="combo_project", callback=self.cb_change_project, width=-1)
                             dpg.add_button(label="New Project", callback=lambda: dpg.configure_item("proj_win", show=True))
                             dpg.add_button(label="Record", tag="btn_rec", callback=self.cb_record_toggle, width=-1)
                             
-                        # SETTINGS TAB
-                        with dpg.tab(label="Settings"):
-                            dpg.add_checkbox(label="Enable SavGol Smoothing", default_value=self.peak_detector.use_smoothing,
-                                            callback=lambda s,a: [setattr(self.peak_detector, 'use_smoothing', a), self.save_settings()])
-                            dpg.add_slider_int(label="Window", default_value=self.peak_detector.smooth_window, min_value=3, max_value=51,
-                                            callback=lambda s,a: [setattr(self.peak_detector, 'smooth_window', a), self.save_settings()])
-                            dpg.add_separator()
-                            dpg.add_checkbox(label="Hide Dummy Pixels", default_value=self.remove_dummies,
-                                            callback=lambda s,a: [setattr(self, 'remove_dummies', a), self.save_settings()])
-                            dpg.add_slider_int(label="Y Max", default_value=self.y_max, min_value=1000, max_value=65535,
-                                            callback=lambda s,a: [setattr(self, 'y_max', a), self.save_settings()])
+
 
                         # HISTORY TAB
                         with dpg.tab(label="History"):
@@ -538,6 +558,26 @@ class MainWindow:
                                  dpg.add_button(label=">", callback=lambda: self.cb_playback_step(1))
                                  
                              dpg.add_slider_int(tag="slider_hist", default_value=0, max_value=100, width=-1)
+                        # LOGS TAB
+                        with dpg.tab(label="Logs"):
+                             with dpg.child_window(horizontal_scrollbar=True, height=-40):
+                                 dpg.add_listbox([], tag="log_list", num_items=25, width=2000)
+                             from utils import LogManager
+                             dpg.add_button(label="Clear Logs", callback=lambda: [LogManager.get().logs.clear(), LogManager.get().refresh_ui()], width=-1)
+                             
+                # SPLITTER
+                dpg.add_button(label="", width=4, tag="sidebar_splitter")
+                with dpg.theme(tag="splitter_theme"):
+                    with dpg.theme_component(dpg.mvButton):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (60, 60, 60, 255))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (100, 100, 100, 255))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (150, 150, 150, 255))
+                dpg.bind_item_theme("sidebar_splitter", "splitter_theme")
+                
+                with dpg.item_handler_registry(tag="splitter_handler"):
+                    dpg.add_item_active_handler(callback=self.cb_splitter_resize)
+                    dpg.add_item_deactivated_handler(callback=self.cb_splitter_reset)
+                dpg.bind_item_handler_registry("sidebar_splitter", "splitter_handler")
 
                 # MAIN PLOT AREA
                 with dpg.child_window(tag="plot_area"):
@@ -556,7 +596,7 @@ class MainWindow:
                                  
                          with dpg.tab(label="Manual Prediction"):
                              with dpg.group():
-                                 dpg.add_text("Manual Concentration Measurement Workflow", color=(0, 255, 255), size=20)
+                                 dpg.add_text("Manual Concentration Measurement Workflow", color=(0, 255, 255))
                                  dpg.add_spacer(height=10)
                                  
                                  dpg.add_text("Session Info")
@@ -577,7 +617,7 @@ class MainWindow:
                                          dpg.add_button(label="Measure Chl A", tag="btn_chla", callback=self.cb_predict_chla, width=200, height=40)
                                          with dpg.group():
                                              dpg.add_text("Concentration:")
-                                             dpg.add_text("0.0000", tag="val_chla", color=(0, 255, 0), size=25)
+                                             dpg.add_text("0.0000", tag="val_chla", color=(0, 255, 0))
                                              dpg.add_text("mg/L")
 
                                  dpg.add_spacer(height=10)
@@ -588,7 +628,7 @@ class MainWindow:
                                          dpg.add_button(label="Measure Chl B", tag="btn_chlb", callback=self.cb_predict_chlb, width=200, height=40)
                                          with dpg.group():
                                              dpg.add_text("Concentration:")
-                                             dpg.add_text("0.0000", tag="val_chlb", color=(0, 255, 0), size=25)
+                                             dpg.add_text("0.0000", tag="val_chlb", color=(0, 255, 0))
                                              dpg.add_text("mg/L")
                                              
                                  dpg.add_spacer(height=20)
@@ -599,9 +639,7 @@ class MainWindow:
 
 
 
-            # Log Window
-            with dpg.child_window(height=150, autosize_x=True):
-                dpg.add_listbox([], tag="log_list", width=-1)
+
 
             # New Project Window (Modal)
             with dpg.window(label="New Project", modal=True, show=False, tag="proj_win", width=300, height=100):
@@ -612,7 +650,25 @@ class MainWindow:
         dpg.create_viewport(title='CCD Monitor v3.0 - Modular', width=1280, height=800)
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        dpg.set_primary_window("main_win", True)
         
+    def cb_splitter_reset(self):
+        # Clear the base width when we stop dragging
+        self._drag_start_width = None
+
+    def cb_splitter_resize(self):
+        # Store width at the exact moment the drag starts
+        if not hasattr(self, "_drag_start_width") or self._drag_start_width is None:
+            self._drag_start_width = dpg.get_item_width("sidebar")
+            
+        # Get total delta since drag started
+        dx = dpg.get_mouse_drag_delta()[0]
+        
+        # Calculate new width based on start width + total delta
+        new_width = self._drag_start_width + dx
+        if 150 < new_width < 1000:
+            dpg.configure_item("sidebar", width=new_width)
+
     def run(self):
         while dpg.is_dearpygui_running():
             self.update()

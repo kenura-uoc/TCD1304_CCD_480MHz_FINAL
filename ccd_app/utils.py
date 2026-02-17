@@ -11,6 +11,7 @@ class LogManager:
     def __init__(self):
         self.logs = []
         self.lock = threading.Lock()
+        self.ui_ready = False  # Track if DPG UI is initialized
         
     @classmethod
     def get(cls):
@@ -21,15 +22,25 @@ class LogManager:
     def log(self, msg, level="INFO"):
         ts = datetime.now().strftime("%H:%M:%S")
         entry = f"[{ts}] [{level}] {msg}"
-        print(entry)
+        print(entry, flush=True)
         with self.lock:
             self.logs.append(entry)
             if len(self.logs) > 1000: self.logs.pop(0)
             
         # Update UI if context exists and item exists
         try:
-            if dpg.is_dearpygui_running() and dpg.does_item_exist("log_list"):
+            if self.ui_ready and dpg.does_item_exist("log_list"):
                 dpg.configure_item("log_list", items=list(reversed(self.logs)))
+        except:
+            pass
+
+    def refresh_ui(self):
+        """Force a refresh of the log list in the UI"""
+        with self.lock:
+            items = list(reversed(self.logs))
+        try:
+            if dpg.does_item_exist("log_list"):
+                dpg.configure_item("log_list", items=items)
         except:
             pass
 

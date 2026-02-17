@@ -2,7 +2,7 @@ import joblib
 import numpy as np
 import os
 from scipy.signal import savgol_filter
-from .utils import log
+from utils import log
 
 class ModelInference:
     def __init__(self, model_dir):

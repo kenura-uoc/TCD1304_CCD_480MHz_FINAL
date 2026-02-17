@@ -3,7 +3,7 @@ import os
 import json
 import time
 from datetime import datetime
-from .utils import log
+from utils import log
 
 class DataManager:
     """
