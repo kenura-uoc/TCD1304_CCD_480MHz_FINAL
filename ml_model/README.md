@@ -24,6 +24,28 @@ Partial Least Squares (PLS) and SVR are ideal here because:
 2.  **Handling Shifts**: The "Red Shift" is non-linear for a single pixel but creates a linear-like shift in the multivariate space that PLS can capture.
 3.  **Noise Tolerance**: By using 3000+ pixels, random noise cancels out, while the true spectral signal (the shape and position) remains strong.
 
+## Model Performance & Validation
+
+We evaluated the models using **5-Fold Cross-Validation (CV)** to assess robustness and check for overfitting.
+
+### 1. Chl-a (PLS Regression)
+*   **Training Accuracy**: $R^2 = 0.99$ (RMSE: 0.42 ppm)
+*   **CV Accuracy**: $R^2 = 0.83$ (RMSE: 1.28 ppm)
+*   **Conclusion**: **Good but Mildly Overfit**.
+    *   The model successfully captures the "Red Shift" and intensity changes.
+    *   The drop in CV score (0.99 → 0.83) suggests it generalizes well but would benefit from more intermediate concentration data points.
+
+### 2. Chl-b (PCA + SVR)
+*   **Training Accuracy**: $R^2 = 0.99$ (RMSE: 0.16 ppm)
+*   **CV Accuracy**: $R^2 = 0.75$ (RMSE: 1.08 ppm)
+*   **Conclusion**: **Overfit**.
+    *   The "Red Shift" for Chl-b is significant (shifting ~1000 pixels).
+    *   With limited samples (~80), the SVR fits the training data almost perfectly but struggles to generalize to unseen spectral shapes.
+    *   **Recommendation**: Collect more data at intermediate concentrations to smooth out the manifold.
+
+### Next Steps for Deployment
+Despite the overfitting warnings, the models are functionally accurate for the existing concentration ranges and "good enough" for the application refactoring and testing phase.
+
 ## Data Analysis Pipeline
 
 Each raw spectrum (3694 pixels from the CCD) goes through the following steps:
