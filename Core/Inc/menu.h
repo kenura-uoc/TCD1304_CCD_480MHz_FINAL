@@ -22,13 +22,15 @@ typedef enum {
   SCREEN_OLD_MEASUREMENTS,
   SCREEN_OLD_MEAS_VIEW,
   SCREEN_SETTINGS,
-  SCREEN_SETTINGS_LASER,  // Sub-screen: adjust laser PWM
-  SCREEN_SETTINGS_INTEG,  // Sub-screen: adjust integration time
-  SCREEN_SETTINGS_FRAMES, // Sub-screen: adjust frames per laser
+  SCREEN_SETTINGS_LASER,   // Sub-screen: adjust laser PWM
+  SCREEN_SETTINGS_INTEG,   // Sub-screen: adjust integration time
+  SCREEN_SETTINGS_FRAMES,  // Sub-screen: adjust frames per laser
+  SCREEN_SETTINGS_AUTOEXP, // Sub-screen: adjust auto-exposure profile
+  SCREEN_AUTO_EXPOSURE,    // New main app: Auto Exposure
 } ScreenState;
 
 // Number of main menu items
-#define MENU_ITEM_COUNT 4
+#define MENU_ITEM_COUNT 5
 
 // --- Stored measurement record ---
 #define MAX_MEASUREMENTS 10
@@ -41,7 +43,7 @@ typedef struct {
 } MeasurementRecord;
 
 // --- Persistent settings (saved to backup SRAM) ---
-#define SETTINGS_MAGIC 0xCB01 // Bumped — frames_per_laser added
+#define SETTINGS_MAGIC 0xCB02 // Bumped to 0xCB02 for new field
 
 typedef struct {
   uint16_t magic;            // Identifies valid settings
@@ -49,6 +51,7 @@ typedef struct {
   uint16_t laser2_pwm;       // 450nm duty (0-2399)
   uint16_t integration_time; // CCD Integration time in ms
   uint16_t frames_per_laser; // Frames to capture per laser in auto-measure
+  uint8_t auto_exp_profile;  // 0=Wide, 1=Medium, 2=Tight
 } DeviceSettings;
 
 // Valid frame count options for auto-measure settings
@@ -67,6 +70,16 @@ typedef enum {
   AUTO_CAPTURE_LASER2, // Capturing CCD frames for laser 2
   AUTO_SAVING,         // Saving to SD card
   AUTO_COMPLETE,       // Done, showing results
+
+  // --- Auto-Exposure States ---
+  AUTOEXP_IDLE,
+  AUTOEXP_MOVE_LASER1,
+  AUTOEXP_SETTLE_LASER1,
+  AUTOEXP_CAPTURE_LASER1,
+  AUTOEXP_MOVE_LASER2,
+  AUTOEXP_SETTLE_LASER2,
+  AUTOEXP_CAPTURE_LASER2,
+  AUTOEXP_DONE
 } AutoMeasState;
 
 #define AUTO_FRAMES_DEFAULT 5 // Default number of CCD frames per laser

@@ -1,10 +1,11 @@
 # System Architecture Diagrams
 
-This document contains PlantUML diagrams for the TCD1304 Spectrometer project. You can copy the code blocks below and paste them into any PlantUML viewer (like [PlantText](https://www.planttext.com/)) to generate the images.
+This document contains PlantUML diagrams for the TCD1304 Spectrometer project. You can copy the code blocks below and paste them into any PlantUML viewer (like [PlantText](https://www.planttext.com/)) or use the Markdown Kroki extension to view them.
 
 ## 1. Hardware Block Diagram
 
 This diagram shows the physical connections between the STM32H7 microcontroller and the various peripherals (CCD Sensor, Lasers, Display, Storage).
+
 
 ```plantuml
 @startuml
@@ -85,6 +86,7 @@ package "Core Application" {
         Handles Button Inputs
         Manages UI State Machine
         Controls Auto-Measurement
+        Controls Auto-Exposure
     }
 }
 
@@ -171,7 +173,50 @@ AUTO_COMPLETE --> AUTO_IDLE : User Press OK
 @enduml
 ```
 
-## 4. Signal Processing Data Flow
+## 4. Auto-Exposure State Machine (NEW)
+
+This diagram details the new Auto-Exposure logic which optimizes integration time based on peak signal intensity.
+
+```plantuml
+@startuml
+[*] --> AUTOEXP_IDLE
+
+AUTOEXP_IDLE --> AUTOEXP_MOVE_LASER1 : User Press OK
+
+state "Tuning Laser 1" as TuningL1 {
+    AUTOEXP_MOVE_LASER1 --> AUTOEXP_CAPTURE_LASER1
+    
+    state AUTOEXP_CAPTURE_LASER1 {
+        [*] --> Capture_Frame
+        Capture_Frame --> Median_Filter : 3-point
+        Median_Filter --> Check_Peak
+        Check_Peak --> Integration_Update : Proportional P-Control
+        Integration_Update --> Capture_Frame : Not Converged
+        Integration_Update --> [*] : Converged / Max Iter
+    }
+}
+
+TuningL1 --> AUTOEXP_MOVE_LASER2 : Done (Save Result A)
+
+state "Tuning Laser 2" as TuningL2 {
+    AUTOEXP_MOVE_LASER2 --> AUTOEXP_CAPTURE_LASER2
+    
+    state AUTOEXP_CAPTURE_LASER2 {
+        [*] --> Capture_Frame2
+        Capture_Frame2 --> Median_Filter2
+        Median_Filter2 --> Check_Peak2
+        Check_Peak2 --> Integration_Update2
+        Integration_Update2 --> Capture_Frame2 : Not Converged
+        Integration_Update2 --> [*] : Converged
+    }
+}
+
+TuningL2 --> AUTOEXP_DONE : Done (Save Result B)
+AUTOEXP_DONE --> AUTOEXP_IDLE : User Press OK
+@enduml
+```
+
+## 5. Signal Processing Data Flow
 
 This diagram explains how the raw analog signal from the CCD is transformed into the final Chlorophyll concentration value.
 

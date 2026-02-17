@@ -39,6 +39,7 @@ void Settings_Load(DeviceSettings *s) {
     s->laser2_pwm = 2399;      // 100% default brightness
     s->integration_time = 300; // Default integration time
     s->frames_per_laser = AUTO_FRAMES_DEFAULT;
+    s->auto_exp_profile = 1; // Default: Medium (50k-60k)
     Settings_Save(s);
   }
   // Sync global
@@ -118,7 +119,7 @@ static uint16_t PctToPwm(uint8_t pct) {
 // LCD Rendering Helpers
 // ============================================================
 static const char *menu_items[] = {"Run CCD", "Auto Measure", "Old Measure",
-                                   "Settings"};
+                                   "Settings", "Auto Exposure"};
 
 static void LCD_PrintLine(LCD_HandleTypeDef *lcd, uint8_t row,
                           const char *text) {
@@ -232,25 +233,85 @@ static void Render_AutoMeasure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   case AUTO_COMPLETE: {
     if (ctx->result_chl_a <= -4.0f || ctx->result_chl_b <= -4.0f) {
       snprintf(line1, sizeof(line1), "Low Signal!");
+      snprintf(line2, sizeof(line2), "OK=Done");
     } else {
       int a_int = (int)ctx->result_chl_a;
       int a_frac = (int)(fabsf(ctx->result_chl_a - a_int) * 100);
       int b_int = (int)ctx->result_chl_b;
       int b_frac = (int)(fabsf(ctx->result_chl_b - b_int) * 100);
 
-      snprintf(line1, sizeof(line1), "A:%s%d.%02d B:%s%d.%02d",
-               (ctx->result_chl_a < 0 ? "-" : ""), abs(a_int), a_frac,
-               (ctx->result_chl_b < 0 ? "-" : ""), abs(b_int), b_frac);
+      // Check for negative/noise values
+      if (ctx->result_chl_a < 0 || ctx->result_chl_b < 0) {
+        // Use 2-line layout to fit "(0.00)" annotation
+        if (ctx->result_chl_a < 0)
+          snprintf(line1, sizeof(line1), "A:%s%d.%02d (0.00)", "-", abs(a_int),
+                   a_frac);
+        else
+          snprintf(line1, sizeof(line1), "A:%d.%02d", abs(a_int), a_frac);
+
+        if (ctx->result_chl_b < 0)
+          snprintf(line2, sizeof(line2), "B:%s%d.%02d (0.00)", "-", abs(b_int),
+                   b_frac);
+        else
+          snprintf(line2, sizeof(line2), "B:%d.%02d OK", abs(b_int), b_frac);
+      } else {
+        // Standard layout (both positive)
+        snprintf(line1, sizeof(line1), "A:%d.%02d B:%d.%02d", abs(a_int),
+                 a_frac, abs(b_int), b_frac);
+        snprintf(line2, sizeof(line2), "OK=Done");
+      }
     }
-  }
-    snprintf(line2, sizeof(line2), "OK=Done");
-    break;
+  } break;
   default:
     return;
   }
 
   LCD_PrintLine(lcd, 0, line1);
   LCD_PrintLine(lcd, 1, line2);
+}
+
+static void Render_AutoExposure(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
+  LCD_Clear(lcd);
+  char line1[17], line2[17];
+
+  switch (ctx->auto_state) {
+  case AUTOEXP_IDLE:
+    LCD_PrintLine(lcd, 0, "Auto Exposure");
+    LCD_PrintLine(lcd, 1, "OK=Start");
+    break;
+  case AUTOEXP_MOVE_LASER1:
+  case AUTOEXP_SETTLE_LASER1:
+    LCD_PrintLine(lcd, 0, "Moving: 405nm");
+    LCD_PrintLine(lcd, 1, "Please wait...");
+    break;
+  case AUTOEXP_CAPTURE_LASER1:
+    snprintf(line1, sizeof(line1), "Tuning 405nm");
+    snprintf(line2, sizeof(line2), "Iter:%d T:%lu", ctx->auto_proj_index + 1,
+             (unsigned long)integration_time_ms);
+    LCD_PrintLine(lcd, 0, line1);
+    LCD_PrintLine(lcd, 1, line2);
+    break;
+  case AUTOEXP_MOVE_LASER2:
+  case AUTOEXP_SETTLE_LASER2:
+    LCD_PrintLine(lcd, 0, "Moving: 450nm");
+    LCD_PrintLine(lcd, 1, "Please wait...");
+    break;
+  case AUTOEXP_CAPTURE_LASER2:
+    snprintf(line1, sizeof(line1), "Tuning 450nm");
+    snprintf(line2, sizeof(line2), "Iter:%d T:%lu", ctx->auto_proj_index + 1,
+             (unsigned long)integration_time_ms);
+    LCD_PrintLine(lcd, 0, line1);
+    LCD_PrintLine(lcd, 1, line2);
+    break;
+  case AUTOEXP_DONE:
+    LCD_PrintLine(lcd, 0, "Opimal Times(ms)");
+    snprintf(line2, sizeof(line2), "A:%d B:%d", (int)ctx->result_chl_a,
+             (int)ctx->result_chl_b);
+    LCD_PrintLine(lcd, 1, line2);
+    break;
+  default:
+    break;
+  }
 }
 
 static void Render_OldMeasurements(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
@@ -303,8 +364,9 @@ static void Render_OldMeasurements(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_PrintLine(lcd, 1, buf);
 }
 
-static const char *settings_items[] = {"Laser PWM", "Integ Time", "Frames"};
-#define SETTINGS_ITEM_COUNT 3
+static const char *settings_items[] = {"Laser PWM", "Integ Time", "Frames",
+                                       "Auto Exp Prof"};
+#define SETTINGS_ITEM_COUNT 4
 
 static void Render_Settings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   // 2-line LCD scrolling: show sel and sel+1 (or sel-1 and sel)
@@ -365,6 +427,18 @@ static void Render_FramesSettings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   LCD_PrintLine(lcd, 1, buf);
 }
 
+static const char *profile_names[] = {"Wide", "Medium", "Tight"};
+
+static void Render_AutoExpSettings(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
+  LCD_PrintLine(lcd, 0, ">Auto Exp Prof");
+  char buf[17];
+  uint8_t p = ctx->settings.auto_exp_profile;
+  if (p > 2)
+    p = 1;
+  snprintf(buf, sizeof(buf), "[%s]", profile_names[p]);
+  LCD_PrintLine(lcd, 1, buf);
+}
+
 static void Render_OldMeasView(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   char line1[17];
   char line2[17];
@@ -394,9 +468,27 @@ static void Render_OldMeasView(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
 
   // Value
   // For SD, we loaded it in Menu_Update
-  if (ctx->result_chl_a < -8.0f) { // e.g. -99.0 init value? using < -8 for
-                                   // safety against -1,-2,-3 codes
+  if (ctx->result_chl_a <
+      -8.0f) { // e.g. -99.0 init value? using < -8 for safety
     snprintf(line2, sizeof(line2), "No Data Found");
+  } else if (ctx->result_chl_a < 0 || ctx->result_chl_b < 0) {
+    // Negative values: use 2 lines, overwriting title on line 1
+    int a_int = (int)ctx->result_chl_a;
+    int a_frac = (int)(fabsf(ctx->result_chl_a - a_int) * 100);
+    int b_int = (int)ctx->result_chl_b;
+    int b_frac = (int)(fabsf(ctx->result_chl_b - b_int) * 100);
+
+    if (ctx->result_chl_a < 0)
+      snprintf(line1, sizeof(line1), "A:%s%d.%02d (0.00)", "-", abs(a_int),
+               a_frac);
+    else
+      snprintf(line1, sizeof(line1), "A:%d.%02d", abs(a_int), a_frac);
+
+    if (ctx->result_chl_b < 0)
+      snprintf(line2, sizeof(line2), "B:%s%d.%02d (0.00)", "-", abs(b_int),
+               b_frac);
+    else
+      snprintf(line2, sizeof(line2), "B:%d.%02d", abs(b_int), b_frac);
   } else {
     int a_int = (int)ctx->result_chl_a;
     int a_frac = (int)(fabsf(ctx->result_chl_a - a_int) * 100);
@@ -498,6 +590,72 @@ static void AutoMeas_Tick(MenuContext *ctx) {
   }
 }
 
+static void AutoExp_Tick(MenuContext *ctx) {
+  uint32_t now = HAL_GetTick();
+
+  switch (ctx->auto_state) {
+  case AUTOEXP_MOVE_LASER1:
+    Servo_MoveAndRelease(0);
+    // Start with current integration time or a safe default?
+    // Let's use current, or 100ms if current is huge to save time
+    if (integration_time_ms > 500)
+      integration_time_ms = 100;
+
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, ctx->settings.laser1_pwm);
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
+    ctx->auto_timer = now;
+    ctx->auto_state = AUTOEXP_SETTLE_LASER1;
+    ctx->need_redraw = 1;
+    break;
+
+  case AUTOEXP_SETTLE_LASER1:
+    if ((now - ctx->auto_timer) >= SERVO_SETTLE_MS) {
+      ctx->auto_frame_count = 0;
+      ctx->auto_proj_index = 0; // Use as Iteration Counter
+      ctx->auto_state = AUTOEXP_CAPTURE_LASER1;
+      ctx->ccd_running = 1;
+      ctx->need_redraw = 1;
+    }
+    break;
+
+  case AUTOEXP_MOVE_LASER2:
+    // Save Laser 1 Result (temporarily in result_chl_a)
+    ctx->result_chl_a = (float)integration_time_ms;
+
+    Servo_MoveAndRelease(1);
+    if (integration_time_ms > 500)
+      integration_time_ms = 100;
+
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, ctx->settings.laser2_pwm);
+    ctx->auto_timer = now;
+    ctx->auto_state = AUTOEXP_SETTLE_LASER2;
+    ctx->need_redraw = 1;
+    break;
+
+  case AUTOEXP_SETTLE_LASER2:
+    if ((now - ctx->auto_timer) >= SERVO_SETTLE_MS) {
+      ctx->auto_frame_count = 0;
+      ctx->auto_proj_index = 0; // Iteration Counter
+      ctx->auto_state = AUTOEXP_CAPTURE_LASER2;
+      ctx->ccd_running = 1;
+      ctx->need_redraw = 1;
+    }
+    break;
+
+  case AUTOEXP_DONE:
+    // Save Laser 2 Result
+    // If just entered done
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_2, 0);
+    ctx->ccd_running = 0;
+    break;
+
+  default:
+    break;
+  }
+}
+
 // ============================================================
 // Menu Logic
 // ============================================================
@@ -524,6 +682,9 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
   // Run auto-measurement state machine if active
   if (ctx->screen == SCREEN_AUTO_MEASURE && ctx->auto_state != AUTO_IDLE) {
     AutoMeas_Tick(ctx);
+  }
+  if (ctx->screen == SCREEN_AUTO_EXPOSURE && ctx->auto_state != AUTOEXP_IDLE) {
+    AutoExp_Tick(ctx);
   }
 
   // Process all pending events in the queue
@@ -584,6 +745,11 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
         case 3: // Settings
           Buttons_Reset();
           ctx->screen = SCREEN_SETTINGS;
+          break;
+        case 4: // Auto Exposure
+          Buttons_Reset();
+          ctx->screen = SCREEN_AUTO_EXPOSURE;
+          ctx->auto_state = AUTOEXP_IDLE;
           break;
         }
         ctx->need_redraw = 1;
@@ -688,6 +854,31 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
       // During capture, ignore button presses
       break;
 
+    // ---- AUTO EXPOSURE ----
+    case SCREEN_AUTO_EXPOSURE:
+      if (ctx->auto_state == AUTOEXP_IDLE) {
+        if (id == BTN_ID_LEFT) {
+          Buttons_Reset();
+          ctx->screen = SCREEN_MAIN_MENU;
+          ctx->need_redraw = 1;
+        }
+        if (id == BTN_ID_OK) {
+          ctx->auto_state = AUTOEXP_MOVE_LASER1;
+          ctx->need_redraw = 1;
+          Buttons_Reset();
+        }
+      } else if (ctx->auto_state == AUTOEXP_DONE) {
+        if (id == BTN_ID_OK || id == BTN_ID_LEFT) {
+          // Save the last result for Laser 2
+          ctx->result_chl_b = (float)integration_time_ms;
+          Buttons_Reset();
+          ctx->screen = SCREEN_MAIN_MENU;
+          ctx->auto_state = AUTOEXP_IDLE;
+          ctx->need_redraw = 1;
+        }
+      }
+      break;
+
     // ---- OLD MEASUREMENTS ----
     case SCREEN_OLD_MEASUREMENTS:
       if (id == BTN_ID_LEFT) {
@@ -783,8 +974,10 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
           ctx->laser_sel = 0;
         } else if (ctx->settings_sel == 1) {
           ctx->screen = SCREEN_SETTINGS_INTEG;
-        } else {
+        } else if (ctx->settings_sel == 2) {
           ctx->screen = SCREEN_SETTINGS_FRAMES;
+        } else {
+          ctx->screen = SCREEN_SETTINGS_AUTOEXP;
         }
         ctx->need_redraw = 1;
       }
@@ -854,6 +1047,26 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
             break;
           }
         }
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_OK) {
+        Settings_Save(&ctx->settings);
+        ctx->screen = SCREEN_SETTINGS;
+        ctx->need_redraw = 1;
+        Buttons_Reset();
+      }
+      break;
+
+    // ---- AUTO EXP PROFILE SETTINGS ----
+    case SCREEN_SETTINGS_AUTOEXP:
+      if (id == BTN_ID_LEFT) {
+        ctx->screen = SCREEN_SETTINGS;
+        ctx->need_redraw = 1;
+      }
+      if (id == BTN_ID_UP || id == BTN_ID_DOWN) {
+        // Cycle 0->1->2->0
+        ctx->settings.auto_exp_profile =
+            (ctx->settings.auto_exp_profile + 1) % 3;
         ctx->need_redraw = 1;
       }
       if (id == BTN_ID_OK) {
@@ -1009,6 +1222,9 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
     case SCREEN_SETTINGS_FRAMES:
       Render_FramesSettings(ctx, lcd);
       break;
+    case SCREEN_SETTINGS_AUTOEXP:
+      Render_AutoExpSettings(ctx, lcd);
+      break;
     case SCREEN_SETTINGS_LASER:
       break; // Handled below (throttled)
     }
@@ -1028,6 +1244,8 @@ uint8_t Menu_Update(MenuContext *ctx, LCD_HandleTypeDef *lcd) {
     return 1;
   if (ctx->screen == SCREEN_AUTO_MEASURE && ctx->ccd_running)
     return 2;
+  if (ctx->screen == SCREEN_AUTO_EXPOSURE && ctx->ccd_running)
+    return 2; // Share Auto Mode logic
   return 0;
 }
 
@@ -1192,6 +1410,111 @@ void Menu_AutoMeas_OnFrame(MenuContext *ctx, const uint16_t *pixels,
       // Save measurement record + result to SD
       Menu_SaveMeasurement(ctx, ctx->result_chl_a, ctx->result_chl_b);
       ctx->auto_state = AUTO_SAVING;
+    }
+  }
+
+  // --------------------------------------------------------
+  // AUTO EXPOSURE LOGIC
+  // --------------------------------------------------------
+  else if (ctx->auto_state == AUTOEXP_CAPTURE_LASER1 ||
+           ctx->auto_state == AUTOEXP_CAPTURE_LASER2) {
+    if (ctx->auto_frame_count == 0) {
+      // Ignore first frame after integration time change (often garbage/old
+      // exp)
+      ctx->auto_frame_count++;
+      return;
+    }
+
+    // 1. Median Filter + Detect Peak
+    uint16_t max_peak = 0;
+    // Iterate pixels, respecting edges (1 to len-2)
+    for (int i = 1; i < len - 1; i++) {
+      uint16_t p1 = pixels[i - 1];
+      uint16_t p2 = pixels[i];
+      uint16_t p3 = pixels[i + 1];
+      uint16_t med;
+
+      // Fast median of 3
+      if ((p1 <= p2 && p2 <= p3) || (p3 <= p2 && p2 <= p1))
+        med = p2;
+      else if ((p2 <= p1 && p1 <= p3) || (p3 <= p1 && p1 <= p2))
+        med = p1;
+      else
+        med = p3;
+
+      if (med > max_peak)
+        max_peak = med;
+    }
+
+    // 2. Control Logic
+    uint32_t cur_time = integration_time_ms;
+    uint32_t new_time = cur_time;
+    uint8_t converged = 0;
+
+    // Profiles
+    uint16_t target_min = 50000;
+    uint16_t target_max = 60000;
+    uint32_t target_mid = 55000;
+
+    if (ctx->settings.auto_exp_profile == 0) { // Wide
+      target_min = 40000;
+      target_max = 60000;
+      target_mid = 50000;
+    } else if (ctx->settings.auto_exp_profile == 2) { // Tight
+      target_min = 55000;
+      target_max = 60000;
+      target_mid = 57500;
+    }
+
+    // Determine Next Step
+    if (max_peak > 64000) {
+      // Saturation Risk! Backoff hard.
+      new_time = cur_time / 2;
+      if (new_time < 10)
+        new_time = 10;
+    } else if (max_peak < target_min) {
+      // Too dark
+      if (max_peak < 1000) {
+        new_time = cur_time * 4; // Boost fast
+      } else {
+        // Proportional boost
+        new_time = (cur_time * target_mid) / max_peak;
+      }
+    } else if (max_peak > target_max) {
+      // Too bright but not saturated
+      new_time = (cur_time * target_mid) / max_peak;
+    } else {
+      // Value is in range [target_min, target_max]
+      converged = 1;
+    }
+
+    // Clamping
+    if (new_time > 2000)
+      new_time = 2000;
+    if (new_time < 10)
+      new_time = 10;
+
+    // Update & Decide
+    ctx->auto_proj_index++; // Use as iteration counter
+
+    // Check stopping conditions
+    if (converged || ctx->auto_proj_index >= 10 ||
+        (new_time == cur_time && !converged)) {
+      // Done with this laser
+      if (ctx->auto_state == AUTOEXP_CAPTURE_LASER1) {
+        ctx->auto_state = AUTOEXP_MOVE_LASER2;
+      } else {
+        // Save final result for Laser 2 in result_chl_b
+        ctx->result_chl_b = (float)integration_time_ms;
+        ctx->auto_state = AUTOEXP_DONE;
+      }
+      ctx->need_redraw = 1;
+      ctx->ccd_running = 0; // Stop momentarily
+    } else {
+      // Not converged, retry with new time
+      integration_time_ms = new_time;
+      ctx->auto_frame_count = 0; // Reset to skip next frame (stabilization)
+      ctx->need_redraw = 1;      // Update LCD with new iter/time
     }
   }
 }

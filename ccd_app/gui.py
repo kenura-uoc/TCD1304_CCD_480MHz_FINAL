@@ -298,9 +298,14 @@ class MainWindow:
         if avg_spec is not None:
             self.manual_laser_a = avg_spec
             val = self.model_inference.predict_chla(avg_spec, self.manual_dark, self.integration_time_ms)
-            self.pred_conc_a = val if val else 0.0
-            log(f"Chl A Predicted: {self.pred_conc_a:.4f} mg/L")
-            dpg.set_value("val_chla", f"{self.pred_conc_a:.4f}")
+            self.pred_conc_a = val
+            # Display logic for negative values
+            if self.pred_conc_a < 0:
+                dpg.set_value("val_chla", f"{self.pred_conc_a:.4f} (0.00)")
+                dpg.configure_item("val_chla", color=(255, 100, 100)) # Red to indicate noise/negative
+            else:
+                dpg.set_value("val_chla", f"{self.pred_conc_a:.4f}")
+                dpg.configure_item("val_chla", color=(0, 255, 0)) # Green for positive
             dpg.configure_item("btn_chla", label="Done (Recollect)")
             dpg.configure_item("btn_chla", user_data=avg_spec) # Store for convenience if needed
         else:
@@ -317,9 +322,14 @@ class MainWindow:
         if avg_spec is not None:
             self.manual_laser_b = avg_spec
             val = self.model_inference.predict_chlb(avg_spec, self.manual_dark, self.integration_time_ms)
-            self.pred_conc_b = val if val else 0.0
-            log(f"Chl B Predicted: {self.pred_conc_b:.4f} mg/L")
-            dpg.set_value("val_chlb", f"{self.pred_conc_b:.4f}")
+            self.pred_conc_b = val
+            # Display logic for negative values
+            if self.pred_conc_b < 0:
+                dpg.set_value("val_chlb", f"{self.pred_conc_b:.4f} (0.00)")
+                dpg.configure_item("val_chlb", color=(255, 100, 100))
+            else:
+                dpg.set_value("val_chlb", f"{self.pred_conc_b:.4f}")
+                dpg.configure_item("val_chlb", color=(0, 255, 0))
             dpg.configure_item("btn_chlb", label="Done (Recollect)")
         else:
             dpg.configure_item("btn_chlb", label="Measure Chl B")
