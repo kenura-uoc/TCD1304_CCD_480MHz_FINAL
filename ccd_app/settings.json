@@ -1,0 +1,11 @@
+{
+    "enable_savgol": true,
+    "savgol_window": 11,
+    "frame_average": 1,
+    "peak_threshold": 15000,
+    "peak_min_dist": 100,
+    "last_project": "Default",
+    "remove_dummies": false,
+    "y_max": 65535,
+    "integration_time_ms": 400
+}
