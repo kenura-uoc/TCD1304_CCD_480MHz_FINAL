@@ -1,0 +1,95 @@
+---
+title: "Affordable, Portable, Real-Time Chlorophyll Sensor"
+subtitle: "Physics Report | Group 04"
+author: 
+  - name: "Group 04"
+    affiliation: "Faculty of Science, University of Colombo"
+date: "2026-02-18"
+format:
+  html:
+    toc: true
+    number-sections: true
+    code-fold: true
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+---
+
+## Executive Summary
+This report details the development of a portable, high-accuracy chlorophyll sensor utilizing **Laser-Induced Fluorescence (LIF)** and **tinyML** algorithms. Designed for agricultural, herbal, and aquatic monitoring, the system provides real-time, calibrated measurements of both Chlorophyll-a (Chl-a) and Chlorophyll-b (Chl-b) concentrations.
+
+## Scientific Foundations
+### Importance of Chlorophyll
+Chlorophyll is a primary indicator of plant health, product quality in the herbal industry, and algal biomass in aquatic ecosystems. Monitoring its concentration is critical for water quality assessment and precision agriculture.
+
+### Detection Methodology
+While traditional methods (HPLC, Mass Spectrometry) offer high precision, they are expensive and laboratory-bound. Existing affordable meters often provide only relative content and lack absolute calibration.
+
+*   **Research Gap**: Creating an affordable sensor providing calibrated, simultaneous measurements of Chl-a and Chl-b.
+*   **Objective**: Prototype a real-time sensor using LIF and on-device edge computing analysis.
+
+## Optical & System Methodology
+### Fluorescence Physics
+The sensor employs a flow-through system where samples are excited by targeted wavelengths:
+*   **Laser 405 nm**: Optimized for Chl-a excitation.
+*   **Laser 450 nm**: Optimized for Chl-b excitation.
+
+The resulting fluorescence is captured by a CCD sensor for spectral analysis.
+
+### System Architecture
+*   **Control Unit**: STM32H743VIT6 (480MHz clock) for high-speed acquisition and on-device inference.
+*   **Sensor**: Toshiba TCD1304 linear CCD (3694 pixels).
+*   **PCB Design**: A custom PCB was developed using **KiCad** and manufactured via **JLCPCB** to ensure signal integrity and portability.
+
+## Signal Processing & tinyML
+### Preprocessing Pipeline
+To mitigate noise and baseline drift, the signal undergoes several mathematical steps:
+
+$$ \text{Clean Signal} = (65535 - \text{ADC Value}) - \text{Dark Signa} $$
+
+1.  **Inversion & Dark Subtraction**: Converting inverted CCD output and removing dark current.
+2.  **Median Filtering**: Removing single-pixel spikes.
+3.  **Savitzky-Golay (SG)**: Smoothing and 1st derivative calculation to identify spectral slope.
+4.  **Standard Normal Variate (SNV)**: Normalizing intensity for zero mean and unit variance.
+
+### Machine Learning Models
+Built with **Edge Impulse**, the models run directly on the STM32:
+*   **Chl-a**: Partial Least Squares (PLS) Regression.
+*   **Chl-b**: Support Vector Regression (SVR) with RBF Kernel.
+
+## Experimental Results
+The system was validated against known concentrations derived from the **Lichtenthaler Equation**.
+
+| Analyte | Algorithm | Train $R^2$ | Test $R^2$ | RMSE (mg/L) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Chl-a** | PLS | 0.992 | 0.867 | ~1.55 |
+| **Chl-b** | SVR (RBF) | 0.992 | 0.842 | ~1.07 |
+
+### Uncertainty Analysis
+Monte Carlo simulations confirm that uncertainty increases at higher concentrations, likely due to:
+*   **Inner Filter Effect (IFE)**: Re-absorption of fluorescence at high densities.
+*   **Fluorescence Saturation**: Non-linear response above 18 mg/L.
+
+## Project Economics (Budget)
+The system is designed for maximum affordability without compromising spectral precision.
+*   **Optical Components**: Lasers (405nm, 450nm), Diffraction Grating.
+*   **Electronics**: STM32H7 MCU, TCD1304 CCD, LCD.
+*   **Manufacturing**: Custom PCB (KiCad/JLCPCB).
+*   **Infrastructure**: 3D Printed housing, flow-through sample chamber.
+
+## Limitations & Future Work
+### Limitations
+*   **Concentration Drift**: Acetone evaporation and chlorophyll degradation during testing.
+*   **Instrumental Noise**: CCD electronic noise and sensitivity limits.
+
+### Improvements
+*   **Upgraded Optics**: 1200 lines/mm diffraction grating and objective lens for beam collimation.
+*   **Drift Mitigation**: Sealed sample chambers to prevent evaporation.
+
+## Acknowledgements
+Supervised by **Dr. Siyath Gunewardena** and **Dr. Luckshitha Suriyasena** at the **Center for Instrumentation and Development (CID)**, University of Colombo. Special thanks to Prof. Nalin De Silva and the chemistry lab staff.
+
+## References
+1. Chowdhury, R. I., et al. (2020). Design and development of low-cost, portable, and smart chlorophyll-a sensor. *IEEE Sensors Journal*.
+2. Kamarianakis, Z., & Panagiotakis, S. (2023). Design and implementation of a low-cost chlorophyll content meter. *Sensors*.
