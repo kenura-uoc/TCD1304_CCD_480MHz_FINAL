@@ -1,0 +1,26 @@
+index,label,conc,reason
+13,2.03 ppm (580ms),2.03,"Stage1-MAD: peak at pixel 2305, median=1991, MAD=61.0"
+14,2.04 ppm (580ms),2.04,"Stage1-MAD: peak at pixel 2234, median=1991, MAD=61.0"
+19,2.24 ppm (580ms),2.24,"Stage1-MAD: peak at pixel 2279, median=1991, MAD=61.0"
+21,2.32 ppm (580ms),2.32,"Stage1-MAD: peak at pixel 2475, median=1991, MAD=61.0"
+23,2.41 ppm (580ms),2.41,"Stage1-MAD: peak at pixel 2305, median=1991, MAD=61.0"
+26,2.50 ppm (580ms),2.5,"Stage1-MAD: peak at pixel 2292, median=1991, MAD=61.0"
+27,2.50 ppm (580ms),2.5,"Stage1-MAD: peak at pixel 2279, median=1991, MAD=61.0"
+28,2.50 ppm (580ms),2.5,"Stage1-MAD: peak at pixel 2620, median=1991, MAD=61.0"
+30,2.53 ppm (580ms),2.53,"Stage1-MAD: peak at pixel 2279, median=1991, MAD=61.0"
+36,2.90 ppm (580ms),2.9,"Stage1-MAD: peak at pixel 2436, median=1991, MAD=61.0"
+43,3.25 ppm (580ms),3.25,"Stage1-MAD: peak at pixel 2373, median=1991, MAD=61.0"
+46,3.29 ppm (580ms),3.29,"Stage1-MAD: peak at pixel 2575, median=1991, MAD=61.0"
+51,3.51 ppm (580ms),3.51,"Stage1-MAD: peak at pixel 2187, median=1991, MAD=61.0"
+75,10.23 ppm (300ms),10.2306375,"Stage1-MAD: peak at pixel 2274, median=1991, MAD=61.0"
+77,11.69 ppm (300ms),11.692157142857145,"Stage1-MAD: peak at pixel 2282, median=1991, MAD=61.0"
+78,12.59 ppm (300ms),12.591553846153849,"Stage1-MAD: peak at pixel 2282, median=1991, MAD=61.0"
+79,13.64 ppm (300ms),13.64085,"Stage1-MAD: peak at pixel 2247, median=1991, MAD=61.0"
+80,14.88 ppm (300ms),14.880927272727272,"Stage1-MAD: peak at pixel 2282, median=1991, MAD=61.0"
+81,16.37 ppm (300ms),16.36902,"Stage1-MAD: peak at pixel 2248, median=1991, MAD=61.0"
+82,18.19 ppm (300ms),18.1878,"Stage1-MAD: peak at pixel 2248, median=1991, MAD=61.0"
+18,2.19 ppm (580ms),2.19,Stage2-T²: T²=18.9 > threshold 15.1
+40,3.19 ppm (580ms),3.19,Stage2-T²: T²=21.1 > threshold 15.1
+49,3.39 ppm (580ms),3.39,Stage2-T²: T²=17.0 > threshold 15.1
+57,4.42 ppm (250ms),4.4225825410757285,Stage2-T²: T²=17.1 > threshold 15.1
+76,10.91 ppm (300ms),10.91268,Stage2-T²: T²=24.5 > threshold 15.1
