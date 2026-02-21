@@ -369,6 +369,20 @@ We also prototyped a 1D Convolutional Neural Network (CNN) to see how it compare
 ![Grid search over CNN kernel sizes. (51, 25, 11) achieving the best RMSE.](images/kernel_size_search.png){#fig-kernel-search}
 :::
 
+### Validation on Real-World Data
+To test whether the CNN's simulation advantage translates to real-world performance, we trained a **dual-output 1D CNN** on our actual 79-sample combined dataset (concatenated 405 nm + 450 nm spectra). The results were revealing:
+
+| Model | Chl-a $R^2$ | Chl-b $R^2$ | Chl-a RMSE | Chl-b RMSE |
+| :--- | :---: | :---: | :---: | :---: |
+| **PLS (20-fold CV)** | 0.871 | 0.834 | 1.45 mg/L | 1.12 mg/L |
+| **1D CNN (5-fold CV)** | 0.820 | 0.860 | 1.55 mg/L | 0.90 mg/L |
+
+: Comparison of PLS and 1D CNN on collected real-world spectra (n = 79). {#tbl-pls-cnn-real}
+
+On real data, both models achieved **essentially the same performance**. The CNN was marginally better for Chl-b (R² 0.86 vs 0.83), while PLS held a slight edge for Chl-a. This parity confirms the simulation's prediction: with only ~80 noisy samples and 10× frame averaging, the data quality — not the algorithm — is the limiting factor. The CNN's non-linear capacity simply cannot be realised without the 200+ clean samples recommended by the simulation study.
+
+![1D CNN dual-output evaluation on real-world spinach-extract samples. The model captures the combined concentration trends despite limited training data.](images/real_data_cnn_evaluation.png){#fig-cnn-real-eval}
+
 ### Recommended Protocol
 Based on the simulation findings, the following protocol is recommended for future collection:
 
@@ -477,13 +491,14 @@ The laboratory environment during initial calibration session was not fully rigi
 | **Piecewise model** | IFE non-linearity | ~0.88 | ~1.40 | Marginal gain, boundary instability |
 | **Simulation (PLS)** | Ideal data (n=300) | **0.997** | **0.29** | 5× better with proper data |
 | **Simulation (CNN)** | Ideal + deep learning | **0.999** | **0.20** | Best achievable |
+| **Real CNN (Combined)**| Real data (n=79) | 0.82–0.86 | 0.9–1.5 | Competitive with PLS for Chl-b |
 
 : Summary of model investigation results compared against the simulation target. {#tbl-model-history}
 
 ### Discussion of Data Quantity vs. Algorithm
 Each investigation confirmed that the three physical phenomena affecting model performance — heteroscedastic Beer-Lambert response, concentration-dependent peak shift, and IFE saturation — are all *correctly handled* by the standard PLS preprocessing pipeline.
 
-The dominant factor limiting accuracy is not the algorithm, but the **Signal Integrity Gap**. As seen in @fig-pipeline-comparison, the real data suffer from a noise floor that obscures fine spectral features in the 1st derivative. Moving from 10x to 128x frame averaging (as recommended by simulation) will provide the SNR necessary for the 1D CNN to achieve its target < 0.3 ppm precision.
+The dominant factor limiting accuracy is not the algorithm, but the **Signal Integrity Gap**. As seen in @fig-pipeline-comparison, the real data suffer from a noise floor that obscures fine spectral features in the 1st derivative. This was further confirmed when we trained the 1D CNN on the actual collected data (@tbl-pls-cnn-real): both CNN and PLS converged to the **same performance ceiling** ($R^2 \approx 0.82\text{–}0.87$), proving that the data quality — not model complexity — is the bottleneck. Moving from 10× to 128× frame averaging (as recommended by simulation) will provide the SNR necessary for either model to achieve the target < 0.3 ppm precision.
 
 **Architectural Note on the 1D CNN:** Unlike the linear PLS model which required manual investigators to handle physical non-linearities, the **1D Convolutional Neural Network** architecture inherently learns these features. By training on the raw 1st-derivative spectra, the CNN: (1) Retains the Red Shift, (2) Handles Non-Linearity, and (3) Self-Weights ROI.
 
@@ -497,6 +512,7 @@ The dominant factor limiting accuracy is not the algorithm, but the **Signal Int
 *   **Optical Upgrade — Diffraction Grating**: Upgrading from the current **600 lines/mm** grating to a **1200 lines/mm** grating would double spectral dispersion, enabling sub-nanometre resolution and improved separation of overlapping Chl-a and Chl-b fluorescence bands.
 *   **Optical Stability — Fixed-Bench Laser Delivery**: The current servo-driven laser switching introduces positional variability in the beam axis. Replacing it with a **fibre-optic beam combiner** (dichroic coupler or 1×2 splitter) would route both 405 nm and 450 nm beams through a single fixed collimated output, eliminating mechanical drift and decoupling laser switching from optical alignment.
 *   **Solvent Replacement — DMSO**: Acetone's high volatility (b.p. 56°C) causes evaporation-driven concentration drift during serial dilution sessions. **Dimethyl sulfoxide (DMSO, b.p. 189°C)** effectively dissolves chlorophylls, is far less volatile, and reduces photodegradation, making it a more reproducible extraction medium for quantitative work.
+*   **Pure Chlorophyll Standards**: Our current calibration uses spinach-extract solutions, which inherently contain a mixture of Chl-a and Chl-b, making it impossible to fully decouple the two analytes during model training. A significant improvement would be to use **commercially purified Chl-a and Chl-b powders** (e.g., Sigma-Aldrich C6144 and C5878) to prepare single-pigment stock solutions. Key practical considerations from the literature include: (i) weighing sufficient mass (≥ 5 mg) to minimise balance error, (ii) using **100% acetone** rather than 80% aqueous mixtures to avoid water-induced absorbance interference, (iii) keeping stock solution absorbance in the **linear Beer-Lambert range** (OD < 1.0) by diluting before spectrophotometric measurement, and (iv) filtering residual MgCO₃ (used to prevent pheophytin formation) through a syringe filter before reading. These steps ensure the UV-Vis reference concentrations are accurate, which directly controls the quality of our training labels.
 *   **Phase 2 Combined Model**: As described in @sec-phase2-model, the next algorithmic step is a dual-output model trained on both Chl-a and Chl-b simultaneously, using the existing UV-Vis calibrated dataset. The implementation is in `ml_model/train_combined_model.py`.
 *   **Simulation-Derived Data Collection Strategy**: The simulation study (@sec-simulation-study) quantified exactly what data quality is needed to achieve $R^2 > 0.99$. The recommended protocol (@tbl-protocol) specifies: **200+ unique concentrations** with linear or $\sqrt{}$ spacing over 0.1–20 mg/L; **128× frame averaging** (currently 10×) to reduce noise by ~3.5× via $\sqrt{N}$ averaging; a **standardised integration time of 300–700 ms** (auto-exposure targeting 3000–3500 ADC counts) to eliminate exposure-driven variance; and **MAD + Hotelling T²** automated outlier rejection in place of manual review. Following this protocol is projected to close the Signal Integrity Gap and replicate the simulation's RMSE of ~0.29 mg/L.
 
@@ -525,3 +541,4 @@ We also appreciate all the demonstrators for their support throughout the projec
 15. Warden, P., & Situnayake, D. (2019). *TinyML: Machine Learning with TensorFlow Lite on Arduino and Ultra-Low-Power Microcontrollers*. O'Reilly Media.
 16. Wold, S., Sjöström, M., & Eriksson, L. (2001). PLS-regression: A basic tool of chemometrics. *Chemometrics and Intelligent Laboratory Systems*, 58(2), 109–130. https://doi.org/10.1016/S0169-7439(01)00155-1
 17. LeCun, Y., Bottou, L., Bengio, Y., & Haffner, P. (1998). Gradient-based learning applied to document recognition. *Proceedings of the IEEE*, 86(11), 2278–2324. https://doi.org/10.1109/5.726791
+18. Schertz, F. M. (1928). The preparation of chlorophyll. *Plant Physiology*, 3(4), 487–497. https://doi.org/10.1104/pp.3.4.487
