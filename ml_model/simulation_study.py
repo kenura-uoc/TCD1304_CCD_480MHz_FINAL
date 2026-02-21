@@ -33,31 +33,41 @@ OUT_DIR.mkdir(exist_ok=True)
 # ── TCD1304 sensor parameters ─────────────────────────────────
 TOTAL_PIXELS = 3694
 ROI_START    = 1300
-ROI_END      = 3200
-ROI_LEN      = ROI_END - ROI_START        # 1900 features
+ROI_END      = 3500
+ROI_LEN      = ROI_END - ROI_START        # 2200 features
 
+# ── Realistic spectrum generator ──────────────────────────────
 # ── Realistic spectrum generator ──────────────────────────────
 def generate_fluorescence_spectrum(
     concentration,              # mg/L (ppm)
     integration_time_ms=300,    # ms
     noise_frames=1,             # how many frames are averaged
-    base_peak_pixel=1950,       # centre of fluorescence at 0 ppm
-    red_shift_rate=12.0,        # pixels per ppm (from real data: ~200 px over 18 ppm)
-    fwhm_base=180,              # FWHM in pixels at low conc
-    fwhm_growth=6.0,            # FWHM broadens with concentration
+    analyte="chla",             # "chla" or "chlb"
     dark_level=200,             # ADC counts dark current baseline
     read_noise_std=15,          # ADC counts read-noise per pixel per frame
 ):
-    """Generate a single synthetic CCD frame (3694 pixels) that mimics
-    real Chl-a fluorescence captured on the TCD1304 + 405 nm laser.
+    """Generate a single synthetic CCD frame (3694 pixels).
     
     Physics modelled:
-      • Peak position shifts to higher pixels with concentration (Inner Filter Effect / IFE)
+      • Peak position shifts to higher pixels with concentration
       • FWHM broadens slightly with concentration
       • Intensity is sub-linear (Beer-Lambert + self-absorption saturation)
       • Shot noise, read noise, dark current
       • Integration-time scaling
     """
+    if analyte == "chla":
+        base_peak_pixel = 1950
+        red_shift_rate  = 12.0
+        fwhm_base       = 180
+        fwhm_growth     = 6.0
+        alpha           = 0.12   # absorption coefficient
+    else: # chlb
+        base_peak_pixel = 2200
+        red_shift_rate  = 40.0   # Chl-b has stronger overlap/shift
+        fwhm_base       = 220
+        fwhm_growth     = 8.0
+        alpha           = 0.18   # Chl-b often saturates faster in some setups
+
     x = np.arange(TOTAL_PIXELS, dtype=float)
 
     # --- Peak position (red-shift) ---
@@ -65,32 +75,117 @@ def generate_fluorescence_spectrum(
 
     # --- Peak width (FWHM → sigma) ---
     fwhm = fwhm_base + concentration * fwhm_growth
-    sigma = fwhm / 2.355  # Gaussian sigma
+    sigma = fwhm / 2.355
 
     # --- Intensity (saturating model) ---
-    # intensity ∝ integration_time × f(concentration)
-    # f(c) = A * (1 − exp(−α·c)) models Beer-Lambert + quenching
-    max_signal = 3200           # target ~3200 ADC counts at 300 ms / 10 ppm
-    alpha = 0.12                # absorption coefficient
+    max_signal = 3200
     fluor_intensity = max_signal * (1.0 - np.exp(-alpha * concentration))
-    signal_per_ms = fluor_intensity / 300.0   # normalise to 300 ms baseline
+    signal_per_ms = fluor_intensity / 300.0
     signal = signal_per_ms * integration_time_ms
 
     # --- Gaussian peak ---
     spectrum_clean = signal * np.exp(-0.5 * ((x - peak_pos) / sigma) ** 2)
 
-    # --- Add dark level + noise (per frame, then average) ---
+    # --- Add dark level + noise ---
     frames = []
     for _ in range(noise_frames):
         frame = spectrum_clean + dark_level
-        # Shot noise (Poisson, approximated as Gaussian for large counts)
         shot = np.random.normal(0, np.sqrt(np.maximum(frame, 1)))
-        # Read noise
         read = np.random.normal(0, read_noise_std, TOTAL_PIXELS)
         frames.append(frame + shot + read)
 
-    averaged = np.mean(frames, axis=0)
-    return averaged
+    return np.mean(frames, axis=0)
+
+
+# ── Internal Overview Plot Generator ──────────────────────────
+def generate_overview_plots(analyte="chla"):
+    """Generate 'Ideal Pipeline' and 'Ideal Heatmap' matching report format."""
+    print(f"\n═══ Generating OVERVIEW PLOTS for {analyte.upper()} ═══")
+    n_samples = 300
+    concs = np.linspace(0.1, 20.0, n_samples)
+    it = 500
+    nf = 128
+    
+    bg = generate_fluorescence_spectrum(0.0, it, nf, analyte=analyte)
+    
+    raw_list = []
+    roi_list = []
+    deriv_list = []
+    snv_list = []
+    
+    for c in concs:
+        raw = generate_fluorescence_spectrum(c, it, nf, analyte=analyte)
+        s = (raw - bg) / it
+        roi = s[ROI_START:ROI_END]
+        
+        proc = preprocess(raw, it, bg)
+        # For visualization steps:
+        smoothed = savgol_filter(roi, SG_SMOOTH_W, SG_SMOOTH_P)
+        deriv = savgol_filter(smoothed, SG_DERIV_W, SG_DERIV_P, deriv=1)
+        
+        raw_list.append(raw)
+        roi_list.append(roi)
+        deriv_list.append(deriv)
+        snv_list.append(proc)
+
+    raw_list = np.array(raw_list)
+    roi_list = np.array(roi_list)
+    deriv_list = np.array(deriv_list)
+    snv_list = np.array(snv_list)
+
+    # 1. Pipeline Plot
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f"Ideal Preprocessing Pipeline — Simulated {analyte.upper()}", 
+                 fontsize=14, fontweight='bold')
+    cmap = plt.cm.plasma
+    norm = plt.Normalize(concs.min(), concs.max())
+    
+    axes[0,0].set_title("(a) Raw Synthetic Spectra (3694 px)")
+    for i in range(0, n_samples, 10):
+        axes[0,0].plot(raw_list[i], color=cmap(norm(concs[i])), alpha=0.3)
+    
+    axes[0,1].set_title("(b) ROI [1300-3200] — BG Subtracted + Normalized")
+    px = np.arange(ROI_START, ROI_END)
+    for i in range(0, n_samples, 10):
+        axes[0,1].plot(px, roi_list[i], color=cmap(norm(concs[i])), alpha=0.3)
+
+    axes[1,0].set_title("(c) 1st Derivative (SNR Target)")
+    for i in range(0, n_samples, 10):
+        axes[1,0].plot(px, deriv_list[i], color=cmap(norm(concs[i])), alpha=0.3)
+
+    axes[1,1].set_title("(d) SNV Normalized (Model Input)")
+    for i in range(0, n_samples, 10):
+        axes[1,1].plot(px, snv_list[i], color=cmap(norm(concs[i])), alpha=0.3)
+
+    plt.tight_layout()
+    fig.savefig(OUT_DIR / f"ideal_pipeline_{analyte}.png", dpi=150)
+    plt.close()
+
+    # 2. Heatmap Plot
+    fig, axes = plt.subplots(1, 3, figsize=(15, 6))
+    fig.suptitle(f"Dataset Heatmap — Ideal Simulated {analyte.upper()}", 
+                 fontsize=14, fontweight='bold')
+    
+    im1 = axes[0].imshow(roi_list, aspect='auto', extent=[ROI_START, ROI_END, n_samples, 0])
+    axes[0].set_title("ROI Spectra")
+    fig.colorbar(im1, ax=axes[0])
+    
+    vmax_d = np.percentile(np.abs(deriv_list), 98)
+    im2 = axes[1].imshow(deriv_list, aspect='auto', cmap='RdBu_r', vmin=-vmax_d, vmax=vmax_d,
+                         extent=[ROI_START, ROI_END, n_samples, 0])
+    axes[1].set_title("1st Derivative")
+    fig.colorbar(im2, ax=axes[1])
+
+    vmax_s = np.percentile(np.abs(snv_list), 98)
+    im3 = axes[2].imshow(snv_list, aspect='auto', cmap='RdBu_r', vmin=-vmax_s, vmax=vmax_s,
+                         extent=[ROI_START, ROI_END, n_samples, 0])
+    axes[2].set_title("SNV")
+    fig.colorbar(im3, ax=axes[2])
+
+    plt.tight_layout()
+    fig.savefig(OUT_DIR / f"ideal_heatmap_{analyte}.png", dpi=150)
+    plt.close()
+    print(f"  Saved: ideal_pipeline_{analyte}.png and ideal_heatmap_{analyte}.png")
 
 
 # ── Preprocessing (matches export_model.py) ───────────────────
@@ -426,6 +521,10 @@ if __name__ == "__main__":
     t4 = test_pls_components()
     t5 = test_concentration_spacing()
     t6 = test_best_case_prediction()
+
+    # Generate overview plots for report
+    generate_overview_plots("chla")
+    generate_overview_plots("chlb")
 
     # ── Summary table ──
     print("\n" + "="*60)

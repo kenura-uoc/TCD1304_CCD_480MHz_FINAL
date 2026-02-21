@@ -19,7 +19,7 @@ SG_DERIV_WINDOW = 11
 SG_DERIV_POLY = 3
 SG_DERIV_ORDER = 1
 ROI_START = 1300
-ROI_END = 3200
+ROI_END = 3500
 
 # ============================================================
 # PREPROCESSING FUNCTIONS

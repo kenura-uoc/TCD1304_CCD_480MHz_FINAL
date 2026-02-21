@@ -31,7 +31,7 @@ PLOTS_DIR.mkdir(exist_ok=True)
 
 # Preprocessing
 ROI_START        = 1300
-ROI_END          = 3200
+ROI_END          = 3500
 SG_SMOOTH_WINDOW = 11
 SG_SMOOTH_POLY   = 2
 SG_DERIV_WINDOW  = 11

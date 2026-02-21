@@ -34,7 +34,7 @@ SVR_C_B = 10
 SVR_EPSILON_B = 0.01
 
 ROI_START = 1300
-ROI_END = 3200
+ROI_END = 3500
 
 # Preprocessing Constants (Matcing README/Legacy)
 SG_SMOOTH_WINDOW = 11

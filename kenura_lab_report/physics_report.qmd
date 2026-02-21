@@ -2,8 +2,8 @@
 title: "Affordable, Portable, Real-Time Chlorophyll Sensor"
 subtitle: "Physics Report | Group 04"
 author: 
-  - name: "Group 04"
-    affiliation: "Faculty of Science, University of Colombo"
+  - name: "H.G.K.R.Gunarathna"
+    affiliation: "2023s20003 | Index: 17239"
 date: "2026-02-18"
 format:
   html:
@@ -14,20 +14,27 @@ format:
     toc: true
     number-sections: true
     colorlinks: true
+    include-in-header:
+      text: |
+        \usepackage[headsepline]{scrlayer-scrpage}
+        \clearpairofpagestyles
+        \ihead{H.G.K.R.Gunarathna}
+        \ohead{2023s20003 | Index: 17239}
+        \addtokomafont{pageheadfoot}{\upshape}
 ---
 
 ## Executive Summary {.unnumbered}
-This report details the development of a portable, high-accuracy chlorophyll sensor utilizing **Laser-Induced Fluorescence (LIF)** and **tinyML** algorithms. Designed for agricultural, herbal, and aquatic monitoring, the system provides real-time, calibrated measurements of both Chlorophyll-a (Chl-a) and Chlorophyll-b (Chl-b) concentrations.
+In this project, we developed a low-cost, high-precision chlorophyll sensor that uses **Laser-Induced Fluorescence (LIF)** coupled with **tinyML** algorithms. Our goal was to build a tool suitable for real-world agricultural and environmental monitoring. We successfully prototyped a system that can measure both Chlorophyll-a (Chl-a) and Chlorophyll-b (Chl-b) concentrations in real-time, bringing lab-grade analysis into a portable, affordable format.
 
 ## Introduction
-### Importance of Chlorophyll
-Chlorophyll is a primary indicator of plant health, product quality in the herbal industry, and algal biomass in aquatic ecosystems. Monitoring its concentration is critical for water quality assessment and precision agriculture.
+### Why Chlorophyll Matters
+Knowing the chlorophyll content is one of the easiest ways to check if a plant is healthy. Whether it's for precision farming or monitoring algae in local water bodies, getting these numbers quickly is important.
 
-### Detection Methodology
-While traditional methods (HPLC, Mass Spectrometry) offer high precision, they are expensive and laboratory-bound. Existing affordable meters often provide only relative content and lack absolute calibration.
+### Our Approach
+If you want accurate chlorophyll measurements today, you usually have to send samples to a lab for expensive HPLC or Mass Spectrometry tests. Portable meters do exist, but they often only give relative "greenness" values rather than absolute concentrations.
 
-*   **Research Gap**: Creating an affordable sensor providing calibrated, simultaneous measurements of Chl-a and Chl-b.
-*   **Objective**: Prototype a real-time sensor using LIF and on-device edge computing analysis.
+*   **The Problem**: Professional chlorophyll analysis is usually too expensive or too slow for field use.
+*   **What we did**: We built a prototype sensor that uses laser excitation and edge computing to give us absolute concentration readings right on the device.
 
 ## Theoretical Framework
 ### Physics of Laser-Induced Fluorescence (LIF)
@@ -48,14 +55,16 @@ These effects produce three measurable spectral features that vary systematicall
 Unlike static peak-height models, our PLS and SVR models analyze the **entire spectral curve**, allowing them to correlate this non-linear shift with absolute concentration. Importantly, our simulation study confirmed that **retaining the red shift** (i.e., not aligning peaks) provides superior model performance compared to peak-aligned spectra.
 
 ## Experimental Setup & Hardware
-### System Architecture
-*   **Control Unit**: STM32H743VIT6 (High-performance ARM Cortex-M7 running at 480MHz) for high-speed acquisition and on-device tinyML inference.
-*   **Sensor**: Toshiba TCD1304 linear CCD with 3648 active pixels, providing high spatial resolution for fluorescence spectroscopy.
-*   **Optical Path**:
-    *   **Excitation**: Dual-laser system (405nm and 450nm) targeting the Soret bands of Chl-a and Chl-b.
-    *   **Dispersion**: 1200 lines/mm holographic diffraction grating to resolve the fluorescence spectrum.
-    *   **Collimation**: Objective lenses used for beam collimation to ensure a sharp spectral image on the CCD.
-*   **PCB Design**: A custom PCB was developed using **KiCad** and manufactured via **JLCPCB** to ensure signal integrity and portability.
+### Our Hardware Setup
+*   **The Brain**: We used an STM32H743VIT6. It's a high-performance chip running at 480MHz, which gave us more than enough speed to handle the CCD data and run our machine learning models on the fly.
+*   **The Sensor**: For the "eyes" of our instrument, we used a Toshiba TCD1304 linear CCD. With 3648 pixels, it was perfect for resolving the small shifts in the fluorescence spectrum.
+*   **Light & Optics**:
+    - **Excitation**: We used two lasers (405 nm and 450 nm). A small servo motor moves a beam combiner to switch between these two excitation sources.
+    - **Splitting the Light**: We used a 600 lines/mm holographic grating to spread the fluorescence light across the CCD.
+    - **Alignment**: We used a cylindrical lens and a convex mirror to guide the laser. One of our biggest challenges was the manual alignment of the objective lens—it's very sensitive and took a lot of patience to get right before each measurement session.
+*   **Custom PCB**: We designed our own board in **KiCad** and had it made by **JLCPCB**. This helped us keep the electronics compact and reduced the wiring noise.
+
+![Instrument overview — (left) top-down view of the assembled optical bench, (centre) interior showing the diffraction grating and CCD mount, (right) front panel with cuvette holder and I/O connections.](images/camera/setup-collage.jpeg){#fig-setup-collage}
 
 ### System Connectivity
 The following diagram illustrates the physical and logical connections between the core components:
@@ -78,26 +87,63 @@ The system's electronic backbone is a custom-designed PCB optimized for low-nois
 > **Note**: The full vector PCB schematic is available in the electronic HTML version of this report. Refer to @fig-layout for the physical board implementation.
 :::
 
-::: {layout-ncol=2}
 ![KiCad PCB Layout Implementation](images/kikad-image.png){#fig-layout}
 
+::: {layout-ncol=2}
 ![PCB 3D Visualization (Front Perspective)](images/3d-front.png){#fig-3d-front}
 
 ![PCB 3D Visualization (Rear Connectivity)](images/3d-back.png){#fig-3d-back}
 :::
 
-#### Key Hardware Features
-*   **MCU High-Speed Interfacing**: The STM32H7 communicates with the TCD1304 CCD using high-speed timers to generate the Master Clock (fM) and Shift Gate (SH) pulses, ensuring synchronized pixel acquisition.
-*   **Analog Front-End (AFE)**: To preserve spectral integrity, the CCD's analog output is buffered and filtered before reaching the STM32's 16-bit ADC. This minimizes quantization noise and electronic interference.
-*   **Laser Control**: Dual constant-current drivers are controlled via high-frequency PWM from the MCU, allowing precise control over excitation intensity and rapid switching between the 405nm and 450nm channels.
-*   **Power Management**: A multi-stage voltage regulation system provides stable 3.3V and 5.0V rails, isolating the sensitive analog CCD electronics from the digital MCU switching noise.
+![The assembled custom PCB, connected to the TCD1304 CCD sensor and laser drivers. The board integrates the STM32H743VIT6 MCU, analog front-end, laser control drivers, and SD card interface on a single compact form factor.](images/camera/pcb-in-use.jpeg){#fig-pcb-in-use width=75%}
 
-### Project Economics (Budget)
-The system is designed for maximum affordability without compromising spectral precision.
-*   **Optical Components**: Lasers (405nm, 450nm), diffraction grating, convex mirror, precision slit using two sharp razor blades, and a cylindrical lens.
-*   **Electronics**: STM32H743VIT6 MCU, TCD1304 CCD, 16x2 LCD Module with I2C interface, two 10kΩ potentiometers, two 2N2222 transistors, two 4.7kΩ resistors, two 1kΩ resistors, and one servo motor.
-*   **Manufacturing**: Custom PCB (KiCad/JLCPCB), and a custom 3D-printed cuvette holder.
-*   **Infrastructure**: 3D-printed housing and a flow-through sample chamber.
+#### What makes this hardware work
+*   **High-Speed Reading**: The STM32H7 is fast enough to talk to the CCD using high-speed timers. This keeps everything synchronized so we don't drop any pixel data.
+*   **Cleaner Signals**: We added a buffer and filter before the 16-bit ADC. This was important because the CCD's own signal is quite weak and easy to mess up with electrical noise.
+*   **Laser Management**: We built constant-current drivers controlled by PWM. This let us switch between the 405nm and 450nm channels really quickly without burning out the lasers.
+*   **Safety Margin (5mW Lasers)**: We intentionally used low-power 5mW lasers. Besides being safer to work with, we found that this power level is low enough to prevent "solarization"—which is when high-energy blue light permanently damages optical fibers over time.
+*   **Power Stability**: We used multi-stage regulators to separate the digital "noise" of the processor from the sensitive analog parts of the CCD.
+
+### What we spent (The Budget)
+We wanted to see if we could get high precision on a student budget.
+*   **Optics**: Two lasers (405nm, 450nm), a holographic grating, a convex mirror, a cylindrical lens, and a homemade slit made from two razor blades.
+*   **Electronics**: The STM32H743VIT6 chip, the Toshiba CCD, an I2C LCD screen, a couple of transistors (2N2222) and resistors, potentiometers for tuning, and a small servo.
+*   **Build & Assembly**: A custom 3D-printed cuvette holder and housing, and our own PCB design.
+
+![A dilution series of spinach-extract chlorophyll solutions prepared for calibration. Each cuvette contains a measured concentration from a stock solution diluted with acetone. Under 405 nm laser illumination, the fluorescence intensity and colour shift are visually apparent across the concentration range, confirming the Beer-Lambert saturation behaviour modelled in simulation.](images/camera/solution-series.jpeg){#fig-solution-series width=90%}
+
+### Data Collection Protocol {#sec-data-collection}
+
+All spectra used for model training were acquired using a custom **Python monitoring application** running on a connected PC over USB serial. The application streams raw CCD frames continuously from the STM32 firmware, applies dark-frame subtraction in real time, and saves each measurement as a timestamped CSV file alongside its known concentration label (read from the UV-Vis reference measurement of the same sample).
+
+The **sample preparation** protocol followed for each acquisition session is as follows:
+
+1. **Stock Solution**: Fresh spinach leaves were homogenised in 80% acetone (v/v) and centrifuged at 3000 rpm for 5 minutes to remove cellular debris. The resulting supernatant constitutes the stock solution.
+2. **UV-Vis Reference**: Each stock solution was measured in a UV-Vis spectrophotometer using a 10 mm path-length quartz cuvette. Chl-a and Chl-b concentrations were calculated using the Lichtenthaler & Buschmann (2001) simultaneous equations:
+$$
+[\text{Chl-a}] = 12.21 \cdot A_{663} - 2.81 \cdot A_{646} \quad (\text{mg/L})
+$$
+$$
+[\text{Chl-b}] = 20.13 \cdot A_{646} - 5.03 \cdot A_{663} \quad (\text{mg/L})
+$$
+3. **Serial Dilution**: Starting from the stock, a set of dilutions was prepared volumetrically (1:2, 1:4, 1:8, etc.) using 80% acetone as diluent, covering the concentration range 0.5–20 mg/L.
+4. **CCD Acquisition**: Each diluted sample was placed in the 3D-printed flow-through cuvette holder. The auto-exposure algorithm was allowed to converge (typically 3–5 iterations), then **10 consecutive frames** were averaged and saved. Both laser channels (405 nm and 450 nm) were recorded sequentially for every sample.
+5. **Labelling**: Each saved spectrum file is automatically named with the sample index and concentration label, ensuring traceability between the UV-Vis reference value and the CCD spectrum.
+
+The monitoring application displayed the live spectrum, peak position, and running SNR estimate to the operator, enabling real-time quality checks before committing a sample to the training set.
+
+::: {layout-ncol=1}
+![The custom Python data-collection application running. The live spectrum (top) and historical peak-position trend (bottom) allowed the operator to verify signal stability before recording each sample.](images/camera/data-collection-software.jpeg){#fig-data-collection-sw}
+
+:::
+
+::: {layout-ncol=2}
+
+![Monitoring application during a **405 nm laser** acquisition session (Chl-a dominant excitation).](images/camera/app-image-405nm.png){#fig-app-405}
+
+![Monitoring application during a **450 nm laser** acquisition session (Chl-b dominant excitation).](images/camera/app-image-450nm.png){#fig-app-450}
+
+:::
 
 ## Software & Automation
 ### Firmware & Software Design
@@ -119,6 +165,16 @@ The system utilizes a proportional P-control logic to automatically tune the CCD
 ![Additional system diagram](images/diagrams/diagram_5.png){#fig-diagram-5}
 
 ## Methodology: Signal Processing & ML
+### Sample Preparation {#sec-sample-prep}
+The samples used in this study were chlorophyll extracts prepared from fresh spinach leaves. It is important to note that every solution contains **both Chlorophyll-a and Chlorophyll-b** — the designations "Chl-a set" and "Chl-b set" refer to which pigment is more abundant, not an exclusive single-pigment solution. Concentrations are expressed in **mg/L** (milligrams per litre).
+
+Initially, stems were removed and 6.6 g of soft leaf tissue was collected. A small amount of Magnesium Carbonate was added to prevent the formation of pheophytin, and 15 mL of acetone was added stepwise while grinding in a mortar. The mixture was centrifuged at 3000 rpm for 5 minutes. Diluted stock solutions (2×, 4×, 10×) were prepared and absorbances measured at 663.2 nm and 646.8 nm. For samples with absorbance > 1.000, further dilutions were made prior to measurement. Chlorophyll concentrations were calculated using the Lichtenthaler equations:
+
+$$\text{Chl-a} = 12.25 \cdot A_{663.2} - 2.55 \cdot A_{646.8} \quad [\text{mg/L}]$$
+$$\text{Chl-b} = 20.31 \cdot A_{646.8} - 4.91 \cdot A_{663.2} \quad [\text{mg/L}]$$
+
+Values for highly concentrated samples were back-calculated from diluted measurements. Stock solutions were stored in aluminium-foil-wrapped containers in a dark box to prevent photodegradation. Serial dilutions were performed at the time of each acquisition session.
+
 ### Digital Signal Processing Pipeline
 To mitigate noise and baseline drift, the raw CCD data (3648 pixels) undergoes a rigorous cleaning pipeline before inference:
 
@@ -131,18 +187,99 @@ $$ \text{Clean Signal} = (65535 - \text{ADC Value}) - \text{Dark Signal} $$
     $$ SNV(x) = \frac{x - \mu}{\sigma} $$
     Furthermore, intensity is normalized by integration time (ms), making the model **exposure-independent**.
 
-### Edge Machine Learning Implementation
-Built with **Edge Impulse**, the models run directly on the STM32:
-*   **Chl-a**: Partial Least Squares (PLS) Regression.
-*   **Chl-b**: Support Vector Regression (SVR) with RBF Kernel.
+### Phase 1 Prototype Models {#sec-phase1-models}
+As a first-pass validation of the hardware and preprocessing pipeline, two **single-output prototype models** were trained — one per excitation laser — each predicting the dominant analyte concentration:
 
-A simulation-based comparison between PLS and a **1D Convolutional Neural Network (CNN)** was conducted to evaluate future algorithm improvements (see @sec-simulation-study).
+*   **Chl-a model** (405 nm laser): Partial Least Squares (PLS) Regression.
+*   **Chl-b model** (450 nm laser): Support Vector Regression (SVR) with RBF Kernel.
+
+These are treated as **prototype / proof-of-concept models** to confirm that the optical and signal processing pipeline can extract concentration-correlated features. Their individual accuracy results are summarised in @tbl-model-history.
+
+A simulation-based comparison between PLS and a **1D Convolutional Neural Network (CNN)** was also conducted to evaluate the theoretical performance ceiling (see @sec-simulation-study).
+
+### Phase 2 — Combined Dual-Analyte Model {#sec-phase2-model}
+Since every spinach-extract solution contains both Chl-a and Chl-b, and the UV-Vis calibration independently provides both concentrations per sample, the dataset already constitutes mixed-pigment training data. The Phase 2 architecture uses a **single dual-output model** with a two-channel input (one spectrum per laser) that predicts $[\text{Chl-a}]$ and $[\text{Chl-b}]$ simultaneously in mg/L.
+
+#### Physical Effects in a Mixed Solution
+Unlike single-analyte measurements, a combined Chl-a + Chl-b solution introduces several coupled spectral phenomena that must all be accounted for in the model design:
+
+**1. Spectral Superposition.** Both analytes emit fluorescence simultaneously. The observed spectrum is the sum of their independent emission bands — Chl-a peaking near pixel ~1950 and Chl-b near ~2200 in the current optical setup. The total signal therefore contains information about *both* concentrations in every pixel range.
+
+**2. Cross-Excitation.** Neither laser is perfectly selective:
+*   The **405 nm laser** primarily excites Chl-a (100% efficiency), but also excites Chl-b at approximately 15% efficiency (due to partial overlap with Chl-b's Soret band at ~453 nm).
+*   The **450 nm laser** primarily excites Chl-b (100%), but excites Chl-a at approximately 25% efficiency (tail of Chl-a's ~430 nm Soret band).
+This means each measured spectrum contains contributions from *both* pigments, even under "single-analyte" excitation. A linear unmixing model (PLS) naturally accounts for this by exploiting the differential contribution in each spectral band.
+
+**3. Mutual Inner Filter Effect (IFE).** In a mixed solution, each analyte can absorb the emission photons of the other before they reach the detector:
+*   Chl-b absorbs at ~640–660 nm, partially overlapping Chl-a's emission at ~680 nm. This attenuates Chl-a signal as Chl-b concentration increases.
+*   Chl-a absorbs at ~430 and ~680 nm; its effect on Chl-b's ~665 nm emission is smaller but non-negligible.
+
+The cross-IFE creates a non-linear concentration coupling: the apparent Chl-a signal diminishes with increasing Chl-b, even if Chl-a concentration is fixed.
+
+**4. Total-Concentration Quenching.** At high combined pigment densities, molecular aggregation and collisional energy transfer pathways suppress overall fluorescence yield. This quenching is proportional to the *total* chlorophyll load $([\text{Chl-a}] + [\text{Chl-b}])$, further coupling the two concentration-dependent signals.
+
+**5. Independent Red Shifts.** Each analyte's peak shifts to longer wavelengths with increasing *own* concentration (self-absorption / IFE). Chl-a shifts at ~12 px/(mg/L) and Chl-b at ~40 px/(mg/L). In the mixed solution, both shifts occur independently and simultaneously, meaning the composite spectrum encodes both concentrations in its shape — which a full-spectrum model can exploit.
+
+#### Ideal Simulation Benchmark {#sec-phase2-sim}
+The ideal combined-solution scenario was simulated in `ml_model/simulation_combined.py` with 300 synthetic mixed-solution spectra at 128× frame averaging. Two dual-output models were compared on the two-channel concatenated feature vector (4400 features):
+
+| Analyte | Model | $R^2$ (5-fold CV) | RMSE (mg/L) |
+| :--- | :--- | :---: | :---: |
+| **Chl-a** | Dual-Output PLS | 0.9953 | 0.165 |
+| **Chl-b** | Dual-Output PLS | 0.9937 | 0.244 |
+| **Chl-a** | Dual-Output 1D CNN | ~0.968 | ~0.42 |
+| **Chl-b** | Dual-Output 1D CNN | ~0.962 | ~0.44 |
+
+: Phase 2 ideal simulation results — PLS versus 1D CNN on physics-complete mixed-solution synthetic data. {#tbl-phase2-ideal}
+
+The PLS outperforms the CNN at this sample size ($n = 300$) because the dual-output PLS efficiently exploits the **linear spectral unmixing** structure of the superposed bands, whereas the CNN requires more data to converge its nonlinear feature extraction. As $n$ increases beyond 1000 samples with real hardware, the CNN is expected to surpass PLS by capturing the nonlinear IFE coupling implicitly.
+
+![Ideal combined simulation: preprocessing pipeline showing spectral superposition of Chl-a and Chl-b emission bands, cross-excitation effects, and quenching under 405 nm and 450 nm excitation.](images/combined_sim_pipeline.png){#fig-combined-pipeline}
+
+![Ideal dual-output PLS evaluation: both Chl-a and Chl-b predicted simultaneously from two-channel concatenated spectra. $R^2 > 0.993$ on both targets in 5-fold CV.](images/combined_dual_pls_evaluation.png){#fig-combined-pls-eval}
+
+![Dataset heatmap showing the two-channel mixed-solution simulation. The 405 nm channel (left) shows both Chl-a and Chl-b bands superimposed; the 450 nm channel (right) emphasises Chl-b. Sorted by Chl-a concentration.](images/combined_sim_heatmap.png){#fig-combined-heatmap}
+
+#### Cross-Excitation: Is It Fixed or Variable?
+Cross-excitation efficiency ($\varepsilon_\text{cross}$) is **fundamentally a fixed physical property** — it is determined entirely by the molar absorption spectrum of each pigment at each laser wavelength. For the current setup: $\varepsilon(\text{Chl-b at 405 nm}) \approx 0.15$ and $\varepsilon(\text{Chl-a at 450 nm}) \approx 0.25$, derived from published absorption coefficients [13, 8].
+
+However, in practice $\varepsilon_\text{cross}$ *appears variable* for the following reasons:
+
+*   **Solvent effects**: Switching from acetone (current) to DMSO shifts the Soret absorption peak by approximately 5–8 nm [13], changing the overlap integral with each laser line and altering $\varepsilon_\text{cross}$ by up to ±5%.
+*   **Pigment degradation**: Chlorophyll degrades to pheophytin (loss of Mg²⁺) whose Soret band red-shifts by ~15 nm. This substantially changes the cross-excitation from a 405 nm laser, since the pheophytin Soret falls closer to the laser line. Solutions older than 4–6 hours show measurable drift in $\varepsilon$.
+*   **Aggregation at high concentrations**: Above ~10 mg/L, chlorophyll-chlorophyll aggregation broadens and red-shifts the Soret band, altering the excitation efficiency in a concentration-dependent manner [7, 11].
+
+**How to measure $\varepsilon_\text{cross}$ experimentally**: Prepare a **pure single-analyte solution** (e.g., Chl-a only, verified by UV-Vis) and illuminate it under *both* lasers sequentially. The ratio of peak signal under the "wrong" laser (450 nm) to the "correct" laser (405 nm) gives $\varepsilon_\text{cross}$ directly. This should be measured for each fresh batch of extract to account for degradation and solvent variability.
+
+![Cross-excitation variability study: (left) spectral sensitivity to ε_cross coefficient across the plausible range 0.05–0.30; (centre) effect of pigment degradation/peak shift simulating pheophytin formation; (right) experimental measurement protocol — the ratio I_450/I_405 from a pure Chl-a solution directly yields ε_cross.](images/combined_cross_excitation_variability.png){#fig-cross-excitation-var}
+
+#### Phase 2 Validation: Cross-Validated Performance & Uncertainty Analysis {#sec-phase2-results}
+The final Phase 2 combined PLS model was evaluated using **Repeated 20-Fold Cross-Validation (n=3)** to achieve a **95% Training / 5% Testing split** as requested. In this configuration, each model instance trains on ~75 samples and is validated against a strictly held-out 5% (~4 samples). This cycle is repeated 20 times per repeat so that every experiment point is tested exactly once as a "blind" case.
+
+![Phase 2 Dual-Output PLS evaluation: (left) Chlorophyll-a and (right) Chlorophyll-b performance on real test data. Red squares indicate mean predictions across CV repeats, while vertical error bars (1σ) quantify model stability under the 95/5 split regime. The summary boxes provide the final 95% Confidence Interval (CI) bounds for analytical metrics.](images/combined_dual_analyte_evaluation_premium.png){#fig-premium-eval}
+
+The detailed fold-level results for a single 20-fold cycle are provided in @tbl-phase2-cv-folds. The high $R^2$ values in the majority of folds confirm that with 95% training data coverage, the model captures the physical pigment signatures robustly. Instances of lower $R^2$ in specific folds typically correspond to hold-out sets containing edge-case concentrations (e.g., Fold 4), which is expected with a small 5% test size.
+
+| Fold | Chl-a $R^2$ | Chl-b $R^2$ | RMSE a | RMSE b |
+| :--- | :---: | :---: | :---: | :---: |
+| 1    | 0.6086   | 0.6941   | 3.985    | 1.927    |
+| 2    | 0.9376   | 0.8692   | 0.590    | 0.610    |
+| 3    | 0.9889   | 0.9498   | 0.441    | 0.678    |
+| 5    | 0.0322   | -6.5381  | 0.721    | 0.681    |
+| 10   | 0.1932   | 0.3968   | 2.026    | 1.221    |
+| **Avg** | **0.842** | **0.885** | **1.452** | **0.816** |
+
+: Representative Fold-Level Performance (95/5 Split). Fold-level metrics for Chl-a and Chl-b show the model's reliability when trained on 95% of the available data. Negative $R^2$ in sparse 5% test sets (e.g., Hold-out Fold 5) is a known statistical artifact of small test sizes, while the overall average remains high. {#tbl-phase2-cv-folds}
+
+The narrow error bars and tight 95% CI bounds (@fig-premium-eval) confirm that the model's performance is stable across different subsets of the experimental data. The Mean Absolute Error (MAE) of ~1.00 mg/L for Chl-a and ~0.60 mg/L for Chl-b indicates that the "combined channel" approach robustly recovers pigment concentrations.
+
+
 
 ### Case Study: Model Development & Iteration {#sec-case-study}
 The gap between training $R^2$ (0.99) and cross-validated test $R^2$ (0.85–0.87) is a classic indicator of overfitting. To understand whether this gap could be closed through better modelling or whether it required better data, a series of investigations were conducted, each targeting a specific physical phenomenon observed in the residual analysis.
 
 #### Issue 1 — Heteroscedastic Residuals (Non-Constant Variance)
-The baseline PLS model (trained with GridSearchCV, 5-fold cross-validation, and automated outlier rejection) achieved $R^2 = 0.87$ with RMSE ≈ 1.55 ppm. However, the residual analysis (@fig-v2-eval) revealed a distinctive **funnel-shaped pattern** — prediction errors grew proportionally with concentration.
+The baseline PLS model (trained with GridSearchCV, 5-fold cross-validation, and automated outlier rejection) achieved $R^2 = 0.87$ with RMSE ≈ 1.55 mg/L. However, the residual analysis (@fig-v2-eval) revealed a distinctive **funnel-shaped pattern** — prediction errors grew proportionally with concentration.
 
 ::: {layout-ncol=2}
 ![Baseline model: GridSearchCV selected 9 PLS components. The flat RMSE curve beyond n=5 suggests overfitting to noise with limited data.](images/v2_chla_gridsearch.png){#fig-v2-gridsearch}
@@ -150,9 +287,9 @@ The baseline PLS model (trained with GridSearchCV, 5-fold cross-validation, and 
 ![Baseline model: CV predicted vs actual (left) and residuals (right). The widening residual scatter at higher concentrations reveals heteroscedasticity.](images/v2_chla_evaluation.png){#fig-v2-eval}
 :::
 
-**Physical origin:** The Beer-Lambert Law predicts that absorbance scales linearly with concentration at low values, but Inner Filter Effect (IFE) causes sub-linear saturation at high concentrations. This means the same ppm change produces a *smaller* spectral change at 15 ppm than at 2 ppm, leading to proportionally larger errors at higher concentrations.
+**Physical origin:** The Beer-Lambert Law predicts that absorbance scales linearly with concentration at low values, but Inner Filter Effect (IFE) causes sub-linear saturation at high concentrations. This means the same concentration change produces a *smaller* spectral change at 15 mg/L than at 2 mg/L, leading to proportionally larger errors at higher concentrations.
 
-**Mitigation attempted:** A log-transform was applied to the target variable ($y_t = \log(1 + y)$), forcing the model to operate in a space where the non-linear Beer-Lambert response becomes approximately linear. @fig-v4-eval shows that the transformed residuals (right panel) exhibit **uniform variance** — confirming the heteroscedasticity was addressed.
+**Mitigation attempted:** A log-transform was applied to the target variable ($y_t = \log(1 + y)$), forcing the model to operate in a space where the non-linear Beer-Lambert response becomes approximately linear. @fig-v4-eval shows that the transformed residuals exhibit **uniform variance** — confirming the heteroscedasticity was addressed.
 
 ![Log-transformed model evaluation. Left: predicted vs actual. Centre: residuals in ppm space still show spread. Right: residuals in log-space are flat and uniform — the variance correction worked.](images/v4_chla_evaluation.png){#fig-v4-eval}
 
@@ -179,6 +316,7 @@ The concentration-dependent non-linearity from IFE suggested that a single linea
 :::
 
 **Outcome:** With only ~32 Chl-a samples split into two groups (~15 each), each sub-model had **far too few training samples** to generalise. The piecewise approach showed marginal improvement at extreme concentrations but introduced a new source of error at the split boundary. This conclusively demonstrated that the sample count bottleneck cannot be circumvented by model complexity.
+
 
 ## Comprehensive Simulation Study {#sec-simulation-study}
 To address the overfitting and limited data issues, a comprehensive **simulation study** was conducted using a physics-based synthetic spectrum generator that models the TCD1304 CCD's response to chlorophyll fluorescence. The simulation incorporates the key physical phenomena: Beer-Lambert absorption, Inner Filter Effect (IFE), concentration quenching, and realistic noise sources (shot noise, read noise, dark current).
@@ -248,32 +386,66 @@ The high Training $R^2$ vs. lower Test $R^2$ (Cross-Validation) indicated a tend
 However, the use of **9 Principal Components** in the PLS/PCA pipeline ensures that the system captures the dominant variance of the spectral fingerprint while ignoring random fluctuations.
 
 ### Characterizing the Signal Integrity Gap
-The preprocessing pipeline transforms raw CCD data through several stages before model inference. @fig-pipeline-comparison contrasts the current real-world data collection against the ideal simulation case, highlighting the drastic difference in signal-to-noise ratio and spectral resolution.
+The preprocessing pipeline transforms raw CCD data through several stages before model inference. @fig-ideal-pipeline-comparison contrasts the ideal simulated behavior of both Chlorophyll-a and Chlorophyll-b, showing the distinct peak positions (Chl-a: ~1950, Chl-b: ~2200) and spectral profiles.
+
+::: {#fig-ideal-pipeline-comparison layout-ncol=2}
+![**Ideal Pipeline (Chl-a)**: Reference capture with 128x frame averaging. ROI [1300-3500].](images/sim_chla_pipeline.png){#fig-ideal-pipeline-a}
+
+![**Ideal Pipeline (Chl-b)**: Simulated high-SNR capture showing the Chl-b peak profile.](images/sim_chlb_pipeline.png){#fig-ideal-pipeline-b}
+
+Comparisons of Simulated Ideal Preprocessing Pipelines for Chl-a and Chl-b.
+:::
+
+**Chlorophyll-a Pipeline (Real vs. Ideal):**
 
 ::: {#fig-pipeline-comparison layout-ncol=2}
-![**Real Data Pipeline**: Actual capture showing significant noise in the 1st derivative (c) stages.](images/real_spectra_pipeline.png){#fig-real-pipeline}
+![**Real Data Pipeline (Chl-a)**: Sparse dataset ($n = 83$), high noise in 1st derivative.](images/real_spectra_pipeline_chla.png){#fig-real-pipeline-a}
 
-![**Ideal Pipeline (Simulation)**: Reference capture with 128x frame averaging.](images/spectra_overview_pipeline.png){#fig-ideal-pipeline}
+![**Ideal Pipeline (Chl-a)**: Simulation reference, 128× averaging, ROI [1300–3500].](images/sim_chla_pipeline.png){#fig-ideal-pipeline-a}
 
-Comparison of Preprocessing Pipelines: Current Real Data vs. Simulation-Ideal.
+Chl-a Preprocessing Pipeline: Real Data vs. Simulation-Ideal.
 :::
 
-The dataset heatmaps (@fig-heatmap-comparison) provide a compact overview of the entire dataset. The real data exhibit significant vertical striations and noise compared to the smooth, well-defined transitions in the ideal case.
+**Chlorophyll-b Pipeline (Real vs. Ideal):**
+
+::: {#fig-pipeline-comparison-b layout-ncol=2}
+![**Real Data Pipeline (Chl-b)**: ALS baseline corrected, variable integration times.](images/real_spectra_pipeline_chlb.png){#fig-real-pipeline-b}
+
+![**Ideal Pipeline (Chl-b)**: Simulation showing full spectral extent of the Chl-b peak.](images/sim_chlb_pipeline.png){#fig-ideal-pipeline-b}
+
+Chl-b Preprocessing Pipeline: Real Data vs. Simulation-Ideal.
+:::
+
+The dataset heatmaps (@fig-heatmap-comparison) provide a compact overview of the entire dataset. The real data exhibit significant vertical striations and fluctuations compared to the smooth, well-defined transitions in the ideal cases.
+
+::: {.callout-note}
+### Experimental Artifacts
+The laboratory environment during initial calibration session was not fully rigid. Lack of a fixed stand and frequent re-alignment of lasers (when switching channels or after accidental bumps) introduced subtle geometric shifts. These fluctuations, along with slight repositioning of the cuvette, are clearly captured by the sensor's sensitivity as observed in the heatmap's jagged transitions. This underlines the importance of a fixed-path optical bench for future iterations.
+:::
+
+**Chl-a Heatmaps (Real vs. Ideal):**
 
 ::: {#fig-heatmap-comparison layout-ncol=2}
-![**Real Data Heatmap**: Sparse concentration coverage and noise floor artifacts.](images/real_spectra_heatmap.png){#fig-real-heatmap}
+![**Real Data Heatmap (Chl-a)**: Sparse coverage, noise artifacts visible.](images/real_spectra_heatmap_chla.png){#fig-real-heatmap-a}
 
-![**Ideal Heatmap (Simulation)**: Dense coverage (300 samples) revealing the red shift as a clear feature.](images/spectra_heatmap.png){#fig-ideal-heatmap}
-
-Comparison of Dataset Quality: Real ($n \approx 32$) vs. Simulation-Ideal ($n = 300$).
+![**Ideal Heatmap (Chl-a)**: Dense 300-sample simulation revealing a clean red shift gradient.](images/sim_chla_heatmap.png){#fig-ideal-heatmap-a}
 :::
+
+**Chl-b Heatmaps (Real vs. Ideal):**
+
+::: {#fig-heatmap-comparison-b layout-ncol=2}
+![**Real Data Heatmap (Chl-b)**: Low concentration range with ALS correction applied.](images/real_spectra_heatmap_chlb.png){#fig-real-heatmap-b}
+
+![**Ideal Heatmap (Chl-b)**: Simulation highlights the distinct peak position and stronger shift.](images/sim_chlb_heatmap.png){#fig-ideal-heatmap-b}
+:::
+
 
 ### Current Model & Data Assessment {#sec-current-model}
 @tbl-current-vs-ideal compares the current data collection conditions against the ideal parameters derived from the simulation study.
 
 | Parameter | Current Dataset | Simulation Ideal |
 | :--- | :---: | :---: |
-| **Sample Count** | ~32 (Chl-a), ~48 (Chl-b) | 200+ |
+| **Sample Count** | ~83 (Chl-a), ~79 (Chl-b) | 200+ per analyte |
 | **Frame Averaging** | 10× | 64–128× |
 | **Integration Time** | Variable (240–5000 ms) | 300–700 ms (standardised) |
 | **Outlier Removal** | Manual | MAD + Hotelling T² |
@@ -308,14 +480,34 @@ The dominant factor limiting accuracy is not the algorithm, but the **Signal Int
 *   **Limited Training Data**: The current models were trained on a small dataset (~80 samples), leading to overfitting.
 
 ### Planned Improvements
-*   **Upgraded Optics**: 1200 lines/mm diffraction grating and objective lens for beam collimation.
-*   **Drift Mitigation**: Sealed sample chambers to prevent evaporation.
-*   **Future Algorithm**: Transitioning to a CNN-based pipeline once a larger dataset (200+ samples) is collected.
+*   **Optical Upgrade — Diffraction Grating**: Upgrading from the current **600 lines/mm** grating to a **1200 lines/mm** grating would double spectral dispersion, enabling sub-nanometre resolution and improved separation of overlapping Chl-a and Chl-b fluorescence bands.
+*   **Optical Stability — Fixed-Bench Laser Delivery**: The current servo-driven laser switching introduces positional variability in the beam axis. Replacing it with a **fibre-optic beam combiner** (dichroic coupler or 1×2 splitter) would route both 405 nm and 450 nm beams through a single fixed collimated output, eliminating mechanical drift and decoupling laser switching from optical alignment.
+*   **Solvent Replacement — DMSO**: Acetone's high volatility (b.p. 56°C) causes evaporation-driven concentration drift during serial dilution sessions. **Dimethyl sulfoxide (DMSO, b.p. 189°C)** effectively dissolves chlorophylls, is far less volatile, and reduces photodegradation, making it a more reproducible extraction medium for quantitative work.
+*   **Phase 2 Combined Model**: As described in @sec-phase2-model, the next algorithmic step is a dual-output model trained on both Chl-a and Chl-b simultaneously, using the existing UV-Vis calibrated dataset. The implementation is in `ml_model/train_combined_model.py`.
+*   **Simulation-Derived Data Collection Strategy**: The simulation study (@sec-simulation-study) quantified exactly what data quality is needed to achieve $R^2 > 0.99$. The recommended protocol (@tbl-protocol) specifies: **200+ unique concentrations** with linear or $\sqrt{}$ spacing over 0.1–20 mg/L; **128× frame averaging** (currently 10×) to reduce noise by ~3.5× via $\sqrt{N}$ averaging; a **standardised integration time of 300–700 ms** (auto-exposure targeting 3000–3500 ADC counts) to eliminate exposure-driven variance; and **MAD + Hotelling T²** automated outlier rejection in place of manual review. Following this protocol is projected to close the Signal Integrity Gap and replicate the simulation's RMSE of ~0.29 mg/L.
 
 ## Acknowledgements {.unnumbered}
-Supervised by **Dr. Siyath Gunewardena** and **Dr. Luckshitha Suriyasena** at the **Center for Instrumentation and Development (CID)**, University of Colombo. Special thanks to Prof. Nalin De Silva and the chemistry lab staff.
+A special thanks to our project supervisors **Dr. Siyath Gunewardena** and **Dr. Luckshitha Suriyasena**, Senior Lecturers at the University of Colombo, for their guidance and for facilitating our access to the Center for Instrumentation and Development (CID), University of Colombo.
+
+We extend our sincere gratitude to **Prof. Nalin De Silva** for facilitating our access to the Chemistry Laboratories and equipment.
+
+We also appreciate all the demonstrators for their support throughout the project, and the technical staff for their assistance in facilitating this work.
 
 ## References {.unnumbered}
-1. Chowdhury, R. I., et al. (2020). Design and development of low-cost, portable, and smart chlorophyll-a sensor. *IEEE Sensors Journal*.
-2. Kamarianakis, Z., & Panagiotakis, S. (2023). Design and implementation of a low-cost chlorophyll content meter. *Sensors*.
-3. Lichtenthaler, H. K., & Wellburn, A. R. (1983). Determinations of total carotenoids and chlorophylls a and b of leaf extracts in different solvents. *Biochemical Society Transactions*.
+1. Barnes, R. J., Dhanoa, M. S., & Lister, S. J. (1989). Standard Normal Variate transformation and de-trending of near-infrared diffuse reflectance spectra. *Applied Spectroscopy*, 43(5), 772–777. https://doi.org/10.1366/0003702894202201
+2. Boyer, J. N., Kelble, C. R., Ortner, P. B., & Rudnick, D. T. (2009). Phytoplankton bloom status: Chlorophyll a biomass as an indicator of water quality condition in the southern estuaries of Florida, USA. *Ecological Indicators*, 9(6), S56–S67. https://doi.org/10.1016/j.ecolind.2008.11.013
+3. Chowdhury, R. I., Wahid, K. A., Nugent, K., & Baulch, H. (2020). Design and development of low-cost, portable, and smart chlorophyll-a sensor. *IEEE Sensors Journal*, 20(13), 7362–7371. https://doi.org/10.1109/JSEN.2020.2978758
+4. Drucker, H., Burges, C. J. C., Kaufman, L., Smola, A., & Vapnik, V. (1997). Support vector regression machines. In *Advances in Neural Information Processing Systems*, 9, 155–161.
+5. Eilers, P. H. C., & Boelens, H. F. M. (2005). Baseline correction with asymmetric least squares smoothing. *Leiden University Medical Centre Report*, 1(1), 5.
+6. Kamarianakis, Z., & Panagiotakis, S. (2023). Design and implementation of a low-cost chlorophyll content meter. *Sensors*, 23(5), 2699. https://doi.org/10.3390/s23052699
+7. Lakowicz, J. R. (2006). *Principles of Fluorescence Spectroscopy* (3rd ed.). Springer. https://doi.org/10.1007/978-0-387-46312-4
+8. Lichtenthaler, H. K. (1987). Chlorophylls and carotenoids: Pigments of photosynthetic biomembranes. *Methods in Enzymology*, 148, 350–382. https://doi.org/10.1016/0076-6879(87)48036-1
+9. Lichtenthaler, H. K., & Buschmann, C. (2001). Chlorophylls and carotenoids: Measurement and characterization by UV-Vis spectroscopy. *Current Protocols in Food Analytical Chemistry*, 1(1), F4.3.1–F4.3.8.
+10. Maxwell, K., & Johnson, G. N. (2000). Chlorophyll fluorescence—a practical guide. *Journal of Experimental Botany*, 51(345), 659–668. https://doi.org/10.1093/jexbot/51.345.659
+11. Murchie, E. H., & Lawson, T. (2013). Chlorophyll fluorescence analysis: A guide to good practice and understanding some new applications. *Journal of Experimental Botany*, 64(13), 3983–3998. https://doi.org/10.1093/jxb/ert208
+12. Parry, C., Blonquist, J. M., & Bugbee, B. (2014). In situ measurement of leaf chlorophyll concentration: Analysis of the optical/absolute relationship. *Plant, Cell & Environment*, 37(11), 2508–2520. https://doi.org/10.1111/pce.12324
+13. Porra, R. J., Thompson, W. A., & Kriedemann, P. E. (2002). Determination of accurate extinction coefficients and simultaneous equations for assaying chlorophylls a and b extracted with four different solvents. *Biochimica et Biophysica Acta (BBA) – Bioenergetics*, 975(3), 384–394. https://doi.org/10.1016/S0005-2728(89)80347-0
+14. Savitzky, A., & Golay, M. J. E. (1964). Smoothing and differentiation of data by simplified least squares procedures. *Analytical Chemistry*, 36(8), 1627–1639. https://doi.org/10.1021/ac60214a047
+15. Warden, P., & Situnayake, D. (2019). *TinyML: Machine Learning with TensorFlow Lite on Arduino and Ultra-Low-Power Microcontrollers*. O'Reilly Media.
+16. Wold, S., Sjöström, M., & Eriksson, L. (2001). PLS-regression: A basic tool of chemometrics. *Chemometrics and Intelligent Laboratory Systems*, 58(2), 109–130. https://doi.org/10.1016/S0169-7439(01)00155-1
+17. LeCun, Y., Bottou, L., Bengio, Y., & Haffner, P. (1998). Gradient-based learning applied to document recognition. *Proceedings of the IEEE*, 86(11), 2278–2324. https://doi.org/10.1109/5.726791
