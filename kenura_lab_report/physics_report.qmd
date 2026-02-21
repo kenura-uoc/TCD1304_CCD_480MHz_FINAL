@@ -197,31 +197,31 @@ These are treated as **prototype / proof-of-concept models** to confirm that the
 
 A simulation-based comparison between PLS and a **1D Convolutional Neural Network (CNN)** was also conducted to evaluate the theoretical performance ceiling (see @sec-simulation-study).
 
-### Phase 2 — Combined Dual-Analyte Model {#sec-phase2-model}
-Since every spinach-extract solution contains both Chl-a and Chl-b, and the UV-Vis calibration independently provides both concentrations per sample, the dataset already constitutes mixed-pigment training data. The Phase 2 architecture uses a **single dual-output model** with a two-channel input (one spectrum per laser) that predicts $[\text{Chl-a}]$ and $[\text{Chl-b}]$ simultaneously in mg/L.
+### Phase 2: Our Combined Model {#sec-phase2-model}
+Since every real sample we made from spinach contains both types of chlorophyll, our Phase 2 model handles both at once. We built a single **dual-output model** that looks at both laser channels and predicts the concentrations of Chl-a and Chl-b simultaneously.
 
-#### Physical Effects in a Mixed Solution
-Unlike single-analyte measurements, a combined Chl-a + Chl-b solution introduces several coupled spectral phenomena that must all be accounted for in the model design:
+#### What happens when the pigments are mixed?
+Measuring a mixture is much harder than measuring a single pigment because the two chlorophylls interfere with each other. We had to account for several effects:
 
-**1. Spectral Superposition.** Both analytes emit fluorescence simultaneously. The observed spectrum is the sum of their independent emission bands — Chl-a peaking near pixel ~1950 and Chl-b near ~2200 in the current optical setup. The total signal therefore contains information about *both* concentrations in every pixel range.
+1. **Spectral Superposition**: Both pigments glow at the same time. Since Chl-a and Chl-b peak at different pixels (~1950 and ~2200), we can still tell them apart, but every pixel is actually a mix of both signals.
 
-**2. Cross-Excitation.** Neither laser is perfectly selective:
+2. **Cross-Excitation**: Our lasers aren't perfectly selective.
 *   The **405 nm laser** primarily excites Chl-a (100% efficiency), but also excites Chl-b at approximately 15% efficiency (due to partial overlap with Chl-b's Soret band at ~453 nm).
 *   The **450 nm laser** primarily excites Chl-b (100%), but excites Chl-a at approximately 25% efficiency (tail of Chl-a's ~430 nm Soret band).
 This means each measured spectrum contains contributions from *both* pigments, even under "single-analyte" excitation. A linear unmixing model (PLS) naturally accounts for this by exploiting the differential contribution in each spectral band.
 
-**3. Mutual Inner Filter Effect (IFE).** In a mixed solution, each analyte can absorb the emission photons of the other before they reach the detector:
+**3. Mutual Inner Filter Effect (IFE)** In a mixed solution, each analyte can absorb the emission photons of the other before they reach the detector:
 *   Chl-b absorbs at ~640–660 nm, partially overlapping Chl-a's emission at ~680 nm. This attenuates Chl-a signal as Chl-b concentration increases.
 *   Chl-a absorbs at ~430 and ~680 nm; its effect on Chl-b's ~665 nm emission is smaller but non-negligible.
 
 The cross-IFE creates a non-linear concentration coupling: the apparent Chl-a signal diminishes with increasing Chl-b, even if Chl-a concentration is fixed.
 
-**4. Total-Concentration Quenching.** At high combined pigment densities, molecular aggregation and collisional energy transfer pathways suppress overall fluorescence yield. This quenching is proportional to the *total* chlorophyll load $([\text{Chl-a}] + [\text{Chl-b}])$, further coupling the two concentration-dependent signals.
+4. **Quenching**: When the solution gets too crowded with molecules, the overall brightness starts to drop because the energy is lost in collisions rather than being emitted as light.
 
-**5. Independent Red Shifts.** Each analyte's peak shifts to longer wavelengths with increasing *own* concentration (self-absorption / IFE). Chl-a shifts at ~12 px/(mg/L) and Chl-b at ~40 px/(mg/L). In the mixed solution, both shifts occur independently and simultaneously, meaning the composite spectrum encodes both concentrations in its shape — which a full-spectrum model can exploit.
+5. **Moving Peaks**: As we mentioned in the theoretical section, the peaks shift to the right as concentration goes up. Both pigments do this independently, which actually gives the model extra "clues" to work with.
 
-#### Ideal Simulation Benchmark {#sec-phase2-sim}
-The ideal combined-solution scenario was simulated in `ml_model/simulation_combined.py` with 300 synthetic mixed-solution spectra at 128× frame averaging. Two dual-output models were compared on the two-channel concatenated feature vector (4400 features):
+#### Phase 2 Ideal Simulation: Establishing a Theoretical Baseline {#sec-phase2-sim}
+Before running experiments on real spinach extracts, we developed a simulation study in `ml_model/simulation_combined.py`. We generated 300 synthetic mixed-solution spectra with high frame averaging (128×) to see how well our models could theoretically distinguish between Chl-a and Chl-b. We compared a dual-output PLS model against a 1D Convolutional Neural Network (CNN):
 
 | Analyte | Model | $R^2$ (5-fold CV) | RMSE (mg/L) |
 | :--- | :--- | :---: | :---: |
@@ -232,7 +232,7 @@ The ideal combined-solution scenario was simulated in `ml_model/simulation_combi
 
 : Phase 2 ideal simulation results — PLS versus 1D CNN on physics-complete mixed-solution synthetic data. {#tbl-phase2-ideal}
 
-The PLS outperforms the CNN at this sample size ($n = 300$) because the dual-output PLS efficiently exploits the **linear spectral unmixing** structure of the superposed bands, whereas the CNN requires more data to converge its nonlinear feature extraction. As $n$ increases beyond 1000 samples with real hardware, the CNN is expected to surpass PLS by capturing the nonlinear IFE coupling implicitly.
+The PLS outperforms the CNN at this sample size ($n = 300$) because the dual-output PLS efficiently exploits the **linear spectral unmixing** structure of the superposed bands, where the CNN requires more data to converge its nonlinear feature extraction. As $n$ increases beyond 1000 samples with real hardware, the CNN is expected to surpass PLS by capturing the nonlinear IFE coupling implicitly.
 
 ![Ideal combined simulation: preprocessing pipeline showing spectral superposition of Chl-a and Chl-b emission bands, cross-excitation effects, and quenching under 405 nm and 450 nm excitation.](images/combined_sim_pipeline.png){#fig-combined-pipeline}
 
@@ -240,16 +240,16 @@ The PLS outperforms the CNN at this sample size ($n = 300$) because the dual-out
 
 ![Dataset heatmap showing the two-channel mixed-solution simulation. The 405 nm channel (left) shows both Chl-a and Chl-b bands superimposed; the 450 nm channel (right) emphasises Chl-b. Sorted by Chl-a concentration.](images/combined_sim_heatmap.png){#fig-combined-heatmap}
 
-#### Cross-Excitation: Is It Fixed or Variable?
-Cross-excitation efficiency ($\varepsilon_\text{cross}$) is **fundamentally a fixed physical property** — it is determined entirely by the molar absorption spectrum of each pigment at each laser wavelength. For the current setup: $\varepsilon(\text{Chl-b at 405 nm}) \approx 0.15$ and $\varepsilon(\text{Chl-a at 450 nm}) \approx 0.25$, derived from published absorption coefficients [13, 8].
+#### Investigating Cross-Excitation: Is it really constant?
+In theory, cross-excitation efficiency ($\varepsilon_\text{cross}$) is a fixed property determined by the pigments' absorption spectra. For our setup, we initially used values based on literature: $\varepsilon \approx 0.15$ for Chl-b at 405 nm and $\varepsilon \approx 0.25$ for Chl-a at 450 nm [13, 8].
 
-However, in practice $\varepsilon_\text{cross}$ *appears variable* for the following reasons:
+However, we found that in practice $\varepsilon_\text{cross}$ can shift depending on the context of the experiment. We identified three main factors that complicate this:
 
-*   **Solvent effects**: Switching from acetone (current) to DMSO shifts the Soret absorption peak by approximately 5–8 nm [13], changing the overlap integral with each laser line and altering $\varepsilon_\text{cross}$ by up to ±5%.
-*   **Pigment degradation**: Chlorophyll degrades to pheophytin (loss of Mg²⁺) whose Soret band red-shifts by ~15 nm. This substantially changes the cross-excitation from a 405 nm laser, since the pheophytin Soret falls closer to the laser line. Solutions older than 4–6 hours show measurable drift in $\varepsilon$.
-*   **Aggregation at high concentrations**: Above ~10 mg/L, chlorophyll-chlorophyll aggregation broadens and red-shifts the Soret band, altering the excitation efficiency in a concentration-dependent manner [7, 11].
+- **Solvent Effects**: Switching from acetone to different solvents like DMSO can shift the Soret absorption peak by several nanometers. This directly changes the overlap with our laser lines and shifts $\varepsilon$ slightly.
+- **Pigment Degradation**: As chlorophyll degrades into pheophytin over time, the absorption bands red-shift. This significantly changes how the 405 nm laser interacts with the sample, especially if the extract is more than a few hours old.
+- **Clumping at High Concentrations**: When concentrations go above 10 mg/L, the molecules can start to aggregate, which broadens and shifts the absorption bands in ways that a linear model might not fully capture.
 
-**How to measure $\varepsilon_\text{cross}$ experimentally**: Prepare a **pure single-analyte solution** (e.g., Chl-a only, verified by UV-Vis) and illuminate it under *both* lasers sequentially. The ratio of peak signal under the "wrong" laser (450 nm) to the "correct" laser (405 nm) gives $\varepsilon_\text{cross}$ directly. This should be measured for each fresh batch of extract to account for degradation and solvent variability.
+To manage this, we developed a straightforward calibration step: prepare a verifiably "pure" sample (like Chl-a verified by UV-Vis) and measure it under both lasers. The ratio between the "wrong" laser signal and the "correct" one gives us the exact $\varepsilon_\text{cross}$ for that specific extract. This helps us adjust our models to account for any degradation or solvent changes.
 
 ![Cross-excitation variability study: (left) spectral sensitivity to ε_cross coefficient across the plausible range 0.05–0.30; (centre) effect of pigment degradation/peak shift simulating pheophytin formation; (right) experimental measurement protocol — the ratio I_450/I_405 from a pure Chl-a solution directly yields ε_cross.](images/combined_cross_excitation_variability.png){#fig-cross-excitation-var}
 
@@ -315,16 +315,30 @@ The concentration-dependent non-linearity from IFE suggested that a single linea
 ![Piecewise (split) model. The purple line marks the 5 ppm split threshold. Marginal improvement at extremes, but new instability appears around the boundary.](images/v5_chla_piecewise.png){#fig-v5-piecewise}
 :::
 
-**Outcome:** With only ~32 Chl-a samples split into two groups (~15 each), each sub-model had **far too few training samples** to generalise. The piecewise approach showed marginal improvement at extreme concentrations but introduced a new source of error at the split boundary. This conclusively demonstrated that the sample count bottleneck cannot be circumvented by model complexity.
+**Outcome:** It turned out that we didn't have enough samples to support this approach. Splitting our 32 Chl-a samples (Why 32 samples? Some of the data had to be removed since they exceed the threshold limit.) into two groups meant each model only had about 15 samples to learn from, which is far too few. The piecewise approach gave us a tiny improvement at the extremes but added more instability at the split point. This confirmed that our main bottleneck is the number of samples, not the model's complexity.
 
 
 ## Comprehensive Simulation Study {#sec-simulation-study}
 To address the overfitting and limited data issues, a comprehensive **simulation study** was conducted using a physics-based synthetic spectrum generator that models the TCD1304 CCD's response to chlorophyll fluorescence. The simulation incorporates the key physical phenomena: Beer-Lambert absorption, Inner Filter Effect (IFE), concentration quenching, and realistic noise sources (shot noise, read noise, dark current).
 
-The study quantified the effect of six key data collection parameters on PLS model accuracy:
+### Simulation Methodology & Tech Stack
+The simulation pipeline was implemented in **Python**, leveraging the following core libraries:
+
+*   **NumPy & SciPy**: Used for physical modeling of Gaussian peak shapes, spectral broadening, and baseline modeling.
+*   **Scikit-learn**: Used for building the primary PLS regression models and performing cross-validation (K-Fold).
+*   **PyTorch**: Used to prototype and benchmark the 1D Convolutional Neural Network (CNN) against the baseline PLS models.
+*   **Matplotlib**: Used for high-fidelity visualization of spectral trends and model residual analysis.
+
+The synthetic data generator models the specific hardware response of our TCD1304 sensor by simulating:
+1.  **Red Shift**: Peak positions shift rightward as concentration increases (up to 40 px/(mg/L) for Chl-b).
+2.  **Saturation Physics**: Intensity follows an exponential saturation curve based on the Beer-Lambert law ($I \propto 1 - e^{-\alpha C}$).
+3.  **Noise Theory**: Adds both **Shot Noise** (signal-dependent) and **Read Noise** (constant electronic noise) to match real CCD characteristics.
+4.  **Signal Integration**: Linearly scales intensities with integration time until the 12-bit ADC ceiling (4095 counts) is reached.
+
+Using this setup we tested six key parameters that affect our measurement accuracy:
 
 ### Effect of Sample Count and Peak Alignment
-The simulation confirmed that **200+ unique concentration samples** are required to achieve an RMSE below 0.3 ppm. Critically, **unaligned spectra** (preserving the red shift) consistently outperformed peak-aligned spectra at every sample count, demonstrating that the red shift is a valuable concentration feature.
+The simulation confirmed that **200+ unique concentration samples** are required to achieve an RMSE below 0.3 ppm. Also we found that the **unaligned spectra** (preserving the red shift) consistently outperformed peak-aligned spectra at every sample count, demonstrating that the red shift is a valuable concentration feature.
 
 ![Effect of sample count on RMSE and $R^2$ for aligned vs. unaligned spectra. Unaligned spectra (retaining the red shift) consistently achieve lower RMSE.](images/sim_sample_count.png){#fig-sim-sample-count}
 
@@ -338,8 +352,8 @@ The optimal integration time was found to be **300–700 ms**. Below 200 ms, the
 
 ![Integration time vs. RMSE and peak ADC counts. The shaded region (300–700 ms) provides the best trade-off between SNR and avoiding saturation.](images/sim_integration_time.png){#fig-sim-inttime}
 
-### 1D CNN vs PLS Benchmarking
-A 1D Convolutional Neural Network was prototyped and compared against PLS using a grid search over kernel sizes. The CNN (kernel sizes 51-25-11, learning rate 0.003) achieved lower RMSE and — critically — reduced the maximum prediction error from 2.94 ppm (PLS) to 0.52 ppm (CNN), a **5.7× improvement**. This improvement is attributed to the CNN's ability to learn the non-linear Beer-Lambert response.
+### Benchmarking: 1D CNN vs. PLS
+We also prototyped a 1D Convolutional Neural Network (CNN) to see how it compared against our primary PLS model. After testing different configurations, we found that the CNN achieved a significantly lower error rate—a **5.7× improvement** over PLS in terms of maximum prediction error. This suggests that the CNN is better at implicitly learning the non-linear Beer-Lambert response directly from the raw spectral data.
 
 | Metric | PLS (5 comp.) | 1D CNN (best) |
 | :--- | :---: | :---: |
