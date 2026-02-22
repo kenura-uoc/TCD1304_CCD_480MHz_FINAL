@@ -4,7 +4,7 @@ simulation_study.py — Comprehensive Data-Collection Readiness Test
 ===================================================================
 Simulates realistic TCD1304 CCD fluorescence spectra and answers:
 
-1. How many samples are needed to reach ≤ 0.01 ppm RMSE?
+1. How many samples are needed to reach ≤ 0.01 mg/L RMSE?
 2. What integration-time range keeps SNR high without saturation?
 3. Does peak-alignment (removing the red-shift) help or hurt PLS?
 4. What noise level (frame-averaging) is required?
@@ -39,12 +39,12 @@ ROI_LEN      = ROI_END - ROI_START        # 2200 features
 # ── Realistic spectrum generator ──────────────────────────────
 # ── Realistic spectrum generator ──────────────────────────────
 def generate_fluorescence_spectrum(
-    concentration,              # mg/L (ppm)
+    concentration,              # mg/L
     integration_time_ms=300,    # ms
     noise_frames=1,             # how many frames are averaged
     analyte="chla",             # "chla" or "chlb"
-    dark_level=200,             # ADC counts dark current baseline
-    read_noise_std=15,          # ADC counts read-noise per pixel per frame
+    dark_temp_c=30,             # Ambient temperature for dark current simulation
+    read_noise_std=240,         # ADC counts read-noise per pixel per frame (scaled)
 ):
     """Generate a single synthetic CCD frame (3694 pixels).
     
@@ -61,12 +61,25 @@ def generate_fluorescence_spectrum(
         fwhm_base       = 180
         fwhm_growth     = 6.0
         alpha           = 0.12   # absorption coefficient
+        max_signal      = 40000  # Calibrated: Chl-A is quite bright
     else: # chlb
         base_peak_pixel = 2200
         red_shift_rate  = 40.0   # Chl-b has stronger overlap/shift
         fwhm_base       = 220
         fwhm_growth     = 8.0
         alpha           = 0.18   # Chl-b often saturates faster in some setups
+        max_signal      = 7500   # Calibrated: Chl-B is much dimmer
+    
+    # --- TCD1304 Spectral Response (from datasheet) ---
+    # Wavelength of emission peak:
+    # Chl-A: ~670nm, Chl-B: ~650nm
+    emission_wl = 670 if analyte=="chla" else 650
+    # From "SPECTRAL RESPONSE" plot: 
+    # 550nm: 1.0, 650nm: ~0.95, 700nm: ~0.82
+    spectral_response = np.interp(emission_wl, [400, 550, 650, 700, 800, 900, 1000], [0.8, 1.0, 0.95, 0.82, 0.45, 0.2, 0.05])
+    
+    # Apply hardware sensitivity
+    max_signal *= spectral_response
 
     x = np.arange(TOTAL_PIXELS, dtype=float)
 
@@ -78,15 +91,22 @@ def generate_fluorescence_spectrum(
     sigma = fwhm / 2.355
 
     # --- Intensity (saturating model) ---
-    max_signal = 3200
     fluor_intensity = max_signal * (1.0 - np.exp(-alpha * concentration))
+    # ... but it also depends on excitation efficiency (constant here)
     signal_per_ms = fluor_intensity / 300.0
     signal = signal_per_ms * integration_time_ms
 
     # --- Gaussian peak ---
     spectrum_clean = signal * np.exp(-0.5 * ((x - peak_pos) / sigma) ** 2)
 
-    # --- Add dark level + noise ---
+    # --- Add dark level (datasheet calibrated) + noise ---
+    # Fig: Dark Signal Voltage vs t_INT shows linear increase.
+    # At 30C: ~1% of saturation per 100ms.
+    # Scaled for 16-bit: 655 counts per 100ms = 6.55 counts/ms
+    # We add a temp multiplier based on common CCD dark current doubling rate (~7C)
+    dark_multiplier = 2.0 ** ((dark_temp_c - 30) / 7.0)
+    dark_level = 6.55 * integration_time_ms * dark_multiplier
+    
     frames = []
     for _ in range(noise_frames):
         frame = spectrum_clean + dark_level
@@ -94,7 +114,8 @@ def generate_fluorescence_spectrum(
         read = np.random.normal(0, read_noise_std, TOTAL_PIXELS)
         frames.append(frame + shot + read)
 
-    return np.mean(frames, axis=0)
+    avg_frame = np.mean(frames, axis=0)
+    return np.clip(avg_frame, 0, 65535)  # 16-bit ADC Saturation
 
 
 # ── Internal Overview Plot Generator ──────────────────────────
@@ -223,28 +244,27 @@ def preprocess_aligned(spectrum_raw, integration_time_ms, background):
 
 
 # ── Build synthetic dataset ───────────────────────────────────
-def build_synthetic_dataset(
-    n_samples,
-    conc_range=(0.1, 20.0),
-    int_time_ms=300,
-    noise_frames=10,
-    align=False,
-):
-    """Return (X_processed, y_concentrations)."""
-    concentrations = np.linspace(conc_range[0], conc_range[1], n_samples)
-    # Also generate a single "background" (laser off, just dark + noise)
-    bg = generate_fluorescence_spectrum(0.0, int_time_ms, noise_frames)
-
+def build_synthetic_dataset(n_samples, int_time_ms=300, noise_frames=32, analyte="chla", align=False):
+    """Create a dataset of spectra and concentrations."""
     X = []
-    for c in concentrations:
-        raw = generate_fluorescence_spectrum(c, int_time_ms, noise_frames)
+    # Log-spaced concentrations for more resolution at the low end
+    y = np.geomspace(0.1, 20.0, n_samples)
+    
+    # 3.3V Supply Factor: from datasheet, sensitivity at 3.3V is ~77% of that at 4V.
+    v_supply_factor = 0.77
+    
+    bg = generate_fluorescence_spectrum(0.0, int_time_ms, noise_frames, analyte=analyte)
+    for c in y:
+        raw = generate_fluorescence_spectrum(c, int_time_ms, noise_frames, analyte=analyte)
+        # Apply 3.3V supply factor
+        raw *= v_supply_factor
+        
         if align:
             proc = preprocess_aligned(raw, int_time_ms, bg)
         else:
             proc = preprocess(raw, int_time_ms, bg)
         X.append(proc)
-
-    return np.array(X), concentrations
+    return np.array(X), y
 
 
 def evaluate_pls(X, y, n_components=5, n_splits=5):
@@ -289,10 +309,10 @@ def test_sample_count():
     axes[0].set(xlabel="Samples", ylabel="R² (CV)", title="R² vs Sample Count")
     axes[0].axhline(0.99999, ls="--", c="red", alpha=0.5, label="99.999% target")
     axes[0].legend(fontsize=8)
-    axes[1].set(xlabel="Samples", ylabel="RMSE (ppm)", title="RMSE vs Sample Count")
-    axes[1].axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 ppm target")
+    axes[1].set(xlabel="Samples", ylabel="RMSE (mg/L)", title="RMSE vs Sample Count")
+    axes[1].axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 mg/L target")
     axes[1].legend(fontsize=8)
-    axes[2].set(xlabel="Samples", ylabel="Max Error (ppm)", title="Max Error vs Sample Count")
+    axes[2].set(xlabel="Samples", ylabel="Max Error (mg/L)", title="Max Error vs Sample Count")
     axes[2].legend(fontsize=8)
     for ax in axes:
         ax.grid(True, alpha=0.3)
@@ -323,9 +343,9 @@ def test_noise_frames():
         print(f"  Frames={nf:4d}  SNR∝{snr:.1f}x  R²={r2:.6f}  RMSE={rmse:.5f}")
 
     fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(data["frames"], data["rmse"], "bo-", linewidth=2, label="RMSE (ppm)")
-    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 ppm target")
-    ax1.set(xlabel="Frames Averaged", ylabel="RMSE (ppm)")
+    ax1.plot(data["frames"], data["rmse"], "bo-", linewidth=2, label="RMSE (mg/L)")
+    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 mg/L target")
+    ax1.set(xlabel="Frames Averaged", ylabel="RMSE (mg/L)")
     ax1.set_xscale("log", base=2)
     ax1.legend(loc="upper right")
     ax1.grid(True, alpha=0.3)
@@ -343,37 +363,37 @@ def test_noise_frames():
 # ══════════════════════════════════════════════════════════════
 #  TEST 3 — Integration Time Sweep
 # ══════════════════════════════════════════════════════════════
-def test_integration_time():
-    print("\n═══ TEST 3: Integration Time Sweep ═══")
+def test_integration_time(analyte="chla"):
+    print(f"\n═══ TEST 3: Integration Time Sweep ({analyte.upper()}) ═══")
     int_times = [50, 100, 200, 300, 500, 700, 1000, 1500, 2000, 3000]
     data = {"int_time": [], "r2": [], "rmse": [], "peak_adc_low": [], "peak_adc_high": []}
     n_samples = 150
 
     for it in int_times:
-        X, y = build_synthetic_dataset(n_samples, int_time_ms=it, noise_frames=32)
+        X, y = build_synthetic_dataset(n_samples, int_time_ms=it, noise_frames=32, analyte=analyte)
         r2, rmse, _, _, _ = evaluate_pls(X, y, n_components=5)
         # Check ADC counts at low / high conc
-        raw_low  = generate_fluorescence_spectrum(0.5, it, 32)
-        raw_high = generate_fluorescence_spectrum(18.0, it, 32)
+        raw_low  = generate_fluorescence_spectrum(0.5, it, 32, analyte=analyte)
+        raw_high = generate_fluorescence_spectrum(18.0, it, 32, analyte=analyte)
         data["int_time"].append(it)
         data["r2"].append(r2)
         data["rmse"].append(rmse)
         data["peak_adc_low"].append(np.max(raw_low))
         data["peak_adc_high"].append(np.max(raw_high))
-        print(f"  IntTime={it:5d} ms  R²={r2:.6f}  RMSE={rmse:.5f}  "
+        print(f"  [{analyte}] IntTime={it:5d} ms  R²={r2:.6f}  RMSE={rmse:.5f}  "
               f"ADC_low={np.max(raw_low):.0f}  ADC_high={np.max(raw_high):.0f}")
 
     fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(data["int_time"], data["rmse"], "bo-", linewidth=2, label="RMSE (ppm)")
-    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 ppm target")
-    ax1.set(xlabel="Integration Time (ms)", ylabel="RMSE (ppm)")
+    ax1.plot(data["int_time"], data["rmse"], "bo-", linewidth=2, label="RMSE (mg/L)")
+    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 mg/L target")
+    ax1.set(xlabel="Integration Time (ms)", ylabel="RMSE (mg/L)")
     ax1.legend(loc="upper right")
     ax1.grid(True, alpha=0.3)
 
     ax2 = ax1.twinx()
-    ax2.plot(data["int_time"], data["peak_adc_high"], "r^--", alpha=0.7, label="Peak ADC (18 ppm)")
-    ax2.plot(data["int_time"], data["peak_adc_low"],  "gv--", alpha=0.7, label="Peak ADC (0.5 ppm)")
-    ax2.axhline(4095, ls=":", c="red", alpha=0.3, label="12-bit Saturation")
+    ax2.plot(data["int_time"], data["peak_adc_high"], "r^--", alpha=0.7, label="Peak ADC (18 mg/L)")
+    ax2.plot(data["int_time"], data["peak_adc_low"],  "gv--", alpha=0.7, label="Peak ADC (0.5 mg/L)")
+    ax2.axhline(65535, ls=":", c="red", alpha=0.3, label="16-bit Saturation")
     ax2.set_ylabel("Peak ADC Counts")
     ax2.legend(loc="center right")
 
@@ -401,9 +421,9 @@ def test_pls_components():
         print(f"  Components={nc:2d}  R²={r2:.6f}  RMSE={rmse:.5f}")
 
     fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(data["n_comp"], data["rmse"], "bo-", linewidth=2, label="RMSE (ppm)")
-    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 ppm target")
-    ax1.set(xlabel="PLS Components", ylabel="RMSE (ppm)")
+    ax1.plot(data["n_comp"], data["rmse"], "bo-", linewidth=2, label="RMSE (mg/L)")
+    ax1.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 mg/L target")
+    ax1.set(xlabel="PLS Components", ylabel="RMSE (mg/L)")
     ax1.legend(loc="upper right")
     ax1.grid(True, alpha=0.3)
     ax2 = ax1.twinx()
@@ -451,17 +471,17 @@ def test_concentration_spacing():
         data["r2"].append(r2)
         data["rmse"].append(rmse)
         data["rmse_below_2"].append(rmse_low)
-        print(f"  {name:12s}  R²={r2:.6f}  RMSE={rmse:.5f}  RMSE(<2ppm)={rmse_low:.5f}")
+        print(f"  {name:12s}  R²={r2:.6f}  RMSE={rmse:.5f}  RMSE(<2mg/L)={rmse_low:.5f}")
 
     fig, ax = plt.subplots(figsize=(10, 5))
     x_pos = np.arange(len(data["strategy"]))
     width = 0.35
     ax.bar(x_pos - width/2, data["rmse"], width, label="Overall RMSE", color="steelblue")
-    ax.bar(x_pos + width/2, data["rmse_below_2"], width, label="RMSE (< 2 ppm)", color="coral")
+    ax.bar(x_pos + width/2, data["rmse_below_2"], width, label="RMSE (< 2 mg/L)", color="coral")
     ax.set_xticks(x_pos)
     ax.set_xticklabels(data["strategy"])
-    ax.set(ylabel="RMSE (ppm)", title="TEST 5 — Concentration Spacing Strategy")
-    ax.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 ppm target")
+    ax.set(ylabel="RMSE (mg/L)", title="TEST 5 — Concentration Spacing Strategy")
+    ax.axhline(0.01, ls="--", c="red", alpha=0.5, label="0.01 mg/L target")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
     fig.tight_layout()
@@ -484,7 +504,7 @@ def test_best_case_prediction():
     axes[0].scatter(y_true, y_pred, s=15, alpha=0.7)
     lim = [min(y_true.min(), y_pred.min()) - 0.5, max(y_true.max(), y_pred.max()) + 0.5]
     axes[0].plot(lim, lim, "k--", alpha=0.5)
-    axes[0].set(xlabel="Actual (ppm)", ylabel="Predicted (ppm)",
+    axes[0].set(xlabel="Actual (mg/L)", ylabel="Predicted (mg/L)",
                 title=f"Predicted vs Actual  |  R²={r2:.6f}")
     axes[0].grid(True, alpha=0.3)
 
@@ -492,9 +512,9 @@ def test_best_case_prediction():
     residuals = y_pred - y_true
     axes[1].scatter(y_true, residuals, s=15, alpha=0.7, c="coral")
     axes[1].axhline(0, c="k", ls="--", alpha=0.5)
-    axes[1].axhline( 0.01, c="red", ls=":", alpha=0.4, label="±0.01 ppm")
+    axes[1].axhline( 0.01, c="red", ls=":", alpha=0.4, label="±0.01 mg/L")
     axes[1].axhline(-0.01, c="red", ls=":", alpha=0.4)
-    axes[1].set(xlabel="Actual (ppm)", ylabel="Residual (ppm)",
+    axes[1].set(xlabel="Actual (mg/L)", ylabel="Residual (mg/L)",
                 title=f"Residuals  |  RMSE={rmse:.5f}  MaxErr={me:.5f}")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -517,7 +537,8 @@ if __name__ == "__main__":
 
     t1 = test_sample_count()
     t2 = test_noise_frames()
-    t3 = test_integration_time()
+    t3a = test_integration_time(analyte="chla")
+    t3b = test_integration_time(analyte="chlb")
     t4 = test_pls_components()
     t5 = test_concentration_spacing()
     t6 = test_best_case_prediction()
@@ -530,13 +551,13 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print("  SUMMARY — Recommended Collection Protocol")
     print("="*60)
-    print(f"  Min samples for RMSE < 0.01 ppm : 200+ (with 64+ frames)")
+    print(f"  Min samples for RMSE < 0.01 mg/L : 200+ (with 64+ frames)")
     print(f"  Optimal frame averaging          : 64–128 frames")
     print(f"  Integration time range           : 300–1000 ms")
     print(f"  Peak alignment                   : NOT recommended (red-shift is a feature)")
     print(f"  PLS components                   : 5–7")
     print(f"  Best-case R²                     : {t6['r2']:.8f}")
-    print(f"  Best-case RMSE                   : {t6['rmse']:.6f} ppm")
-    print(f"  Best-case Max Error              : {t6['max_err']:.6f} ppm")
+    print(f"  Best-case RMSE                   : {t6['rmse']:.6f} mg/L")
+    print(f"  Best-case Max Error              : {t6['max_err']:.6f} mg/L")
     print("="*60)
     print(f"\nAll plots saved to: {OUT_DIR.resolve()}")

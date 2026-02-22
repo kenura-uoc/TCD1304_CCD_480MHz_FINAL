@@ -23,18 +23,29 @@ format:
         \addtokomafont{pageheadfoot}{\upshape}
 ---
 
-## Executive Summary {.unnumbered}
-In this project, we developed a low-cost, high-precision chlorophyll sensor that uses **Laser-Induced Fluorescence (LIF)** coupled with **tinyML** algorithms. Our goal was to build a tool suitable for real-world agricultural and environmental monitoring. We successfully prototyped a system that can measure both Chlorophyll-a (Chl-a) and Chlorophyll-b (Chl-b) concentrations in real-time, bringing lab-grade analysis into a portable, affordable format.
+\newpage
+
+## Abstract {.unnumbered}
+This report presents the design, prototyping, and validation of a low-cost, portable chlorophyll sensor using Laser-Induced Fluorescence (LIF) and tinyML inference on an STM32H743 microcontroller. The system employs a Toshiba TCD1304 linear CCD (3648 pixels), a 600 lines/mm holographic grating, and dual excitation lasers (405 nm, 450 nm) to simultaneously resolve Chlorophyll-a and Chlorophyll-b fluorescence spectra. A dual-output Partial Least Squares (PLS) regression model, trained on 79 spinach-extract samples calibrated against UV-Vis reference measurements, achieved cross-validated $R^2$ of 0.852 (Chl-a) and 0.892 (Chl-b) with RMSE of 1.41 and 0.79 mg/L respectively. A physics-based simulation study identified 200+ samples and 128x frame averaging as the primary requirements to reach the target RMSE < 0.3 mg/L. A blind field validation confirmed prediction robustness within 10% of reference standards. The dominant performance bottleneck is data quantity and signal-to-noise ratio, not model architecture—confirmed by the convergence of PLS and 1D CNN performance at the current sample size.
+
+\newpage
 
 ## Introduction
 ### Why Chlorophyll Matters
 Knowing the chlorophyll content is one of the easiest ways to check if a plant is healthy. Whether it's for precision farming or monitoring algae in local water bodies, getting these numbers quickly is important.
 
-### Our Approach
-If you want accurate chlorophyll measurements today, you usually have to send samples to a lab for expensive HPLC or Mass Spectrometry tests. Portable meters do exist, but they often only give relative "greenness" values rather than absolute concentrations.
+### Research Context & Objectives
 
-*   **The Problem**: Professional chlorophyll analysis is usually too expensive or too slow for field use.
-*   **What we did**: We built a prototype sensor that uses laser excitation and edge computing to give us absolute concentration readings right on the device.
+#### Literature Review
+Conventional high-precision chlorophyll analysis typically necessitates expensive laboratory-based methods such as High-Performance Liquid Chromatography (HPLC) or Mass Spectrometry. While affordable hand-held chlorophyll meters (e.g., SPAD) are commercially available, they generally provide relative "greenness" indices rather than absolute concentrations. Recent research has introduced low-cost, portable spectral sensors [3, 6], yet many of these devices remain uncalibrated against absolute laboratory standards or have been validated on a limited range of plant species.
+
+#### Research Gap
+There is a significant lack of affordable, field-deployable sensors capable of providing simultaneous, calibrated measurements of both Chlorophyll-a (Chl-a) and Chlorophyll-b (Chl-b) concentrations. Current low-cost solutions often measure these pigments in isolation or provide uncalibrated relative values, failing to account for the complex spectral overlap and non-linear signal coupling (such as the Inner Filter Effect) that occurs between analytes in a mixed sample.
+
+#### Project Objective
+The objective of this project is to design and prototype a portable, high-accuracy, real-time chlorophyll sensor using Laser-Induced Fluorescence (LIF) coupled with tinyML algorithms. The system is designed to provide professional-grade absolute concentration readings of both Chl-a and Chl-b through immediate on-device edge computing analysis, bridging the gap between affordable indices and laboratory-grade quantification.
+
+\newpage
 
 ## Theoretical Framework
 ### Physics of Laser-Induced Fluorescence (LIF)
@@ -50,9 +61,11 @@ A critical physical observation in this study is the **Red Shift** of the fluore
 
 These effects produce three measurable spectral features that vary systematically with concentration, as confirmed by our simulation study:
 
-![Three key spectral features that change with chlorophyll concentration: (a) peak position shifts ~240 pixels across the 0–20 ppm range, (b) intensity saturates following Beer-Lambert law, and (c) FWHM broadens linearly.](images/feature_trends.png){#fig-feature-trends}
+![Three key spectral features that change with chlorophyll concentration: (a) peak position shifts ~240 pixels across the 0–20 mg/L range, (b) intensity saturates following Beer-Lambert law, and (c) FWHM broadens linearly.](images/feature_trends.png){#fig-feature-trends}
 
 Unlike static peak-height models, our PLS and SVR models analyze the **entire spectral curve**, allowing them to correlate this non-linear shift with absolute concentration. Importantly, our simulation study confirmed that **retaining the red shift** (i.e., not aligning peaks) provides superior model performance compared to peak-aligned spectra.
+
+\newpage
 
 ## Experimental Setup & Hardware
 ### Our Hardware Setup
@@ -145,6 +158,8 @@ The monitoring application displayed the live spectrum, peak position, and runni
 
 :::
 
+\newpage
+
 ## Software & Automation
 ### Firmware & Software Design
 The system's firmware is modularized to handle high-speed data acquisition, real-time UI updates, and machine learning inference concurrently.
@@ -163,6 +178,8 @@ The system utilizes a proportional P-control logic to automatically tune the CCD
 ![State machine diagram for the auto-exposure P-control optimization loop](images/diagrams/auto_exposure.png){#fig-auto-exposure-sm}
 
 ![Additional system diagram](images/diagrams/diagram_5.png){#fig-diagram-5}
+
+\newpage
 
 ## Methodology: Signal Processing & ML
 ### Sample Preparation {#sec-sample-prep}
@@ -275,15 +292,6 @@ The detailed fold-level results for a single 20-fold cycle are provided in @tbl-
 
 The narrow error bars and tight 95% CI bounds (@fig-premium-eval) confirm that the model's performance is stable across different subsets of the experimental data. The Mean Absolute Error (MAE) of ~1.00 mg/L for Chl-a and ~0.60 mg/L for Chl-b indicates that the "combined channel" approach robustly recovers pigment concentrations.
 
-::: {.callout-note}
-### Why the Error Bars Are Smaller in the Dual-Output Models
-A notable observation across both the PLS and 1D CNN dual-output models (@fig-premium-eval, @fig-cnn-real-eval) is that the per-sample error bars ($1\sigma$ across repeated CV) are markedly smaller than those seen in the Phase 1 single-analyte models. Three factors explain this:
-
-1. **Inter-analyte spectral constraints.** The dual model receives *both* the 405 nm and 450 nm laser channels as a concatenated input. Because each channel carries partially independent information about each pigment (via cross-excitation ratios), the model has twice the spectral evidence per sample, reducing prediction variance.
-2. **Multi-task regularisation.** Predicting two targets simultaneously forces the latent variables (PLS components) or convolutional filters (CNN) to capture shared spectral structure rather than overfitting to noise in a single target. This implicit regularisation leads to more stable predictions across different CV folds and repeats.
-3. **Statistical effect of repeated CV with a small number of repeats.** Both models use only $n = 3$ repeats of K-fold CV. With just three prediction values per sample, the standard deviation is inherently small — it reflects the model's consistency across slightly different fold partitions rather than its absolute prediction uncertainty. Increasing $n_\text{repeats}$ would produce more representative uncertainty estimates.
-:::
-
 #### Ideal Simulation Grid Search Results {#sec-ideal-gridsearch}
 
 ![Ideal dual-output grid search comparison: PLS RMSE curve (left) and top-15 CNN configurations ranked by total RMSE (right). PLS achieves the overall best ΣRMSE = 0.240 at n=15 components, while the best CNN reaches 0.390 with kernels (51,25,11).](images/dual_gridsearch_comparison.png){#fig-gridsearch-comparison}
@@ -342,28 +350,28 @@ The baseline PLS model (trained with GridSearchCV, 5-fold cross-validation, and 
 
 **Mitigation attempted:** A log-transform was applied to the target variable ($y_t = \log(1 + y)$), forcing the model to operate in a space where the non-linear Beer-Lambert response becomes approximately linear. @fig-v4-eval shows that the transformed residuals exhibit **uniform variance** — confirming the heteroscedasticity was addressed.
 
-![Log-transformed model evaluation. Left: predicted vs actual. Centre: residuals in ppm space still show spread. Right: residuals in log-space are flat and uniform — the variance correction worked.](images/v4_chla_evaluation.png){#fig-v4-eval}
+![Log-transformed model evaluation. Left: predicted vs actual. Centre: residuals in mg/L space still show spread. Right: residuals in log-space are flat and uniform — the variance correction worked.](images/v4_chla_evaluation.png){#fig-v4-eval}
 
-**Outcome:** While the log-transform successfully equalised variance across the concentration range, the overall RMSE improved only marginally (~1.55 → ~1.45 ppm). This confirmed that the heteroscedasticity was a secondary effect — the primary limitation was **insufficient training data** to capture the full spectral diversity.
+**Outcome:** While the log-transform successfully equalised variance across the concentration range, the overall RMSE improved only marginally (~1.55 → ~1.45 mg/L). This confirmed that the heteroscedasticity was a secondary effect — the primary limitation was **insufficient training data** to capture the full spectral diversity.
 
 #### Issue 2 — Red Shift as a Concentration Feature
 As documented in @sec-red-shift, the fluorescence peak position shifts rightward with increasing concentration due to self-absorption effects. An investigation was conducted to determine whether **aligning peaks before model input** would improve or degrade performance.
 
 **Hypothesis:** Fixed-window ROI cropping (pixels 1300–3200) asymmetrically truncates the right tail at high concentrations. Aligning peaks to centre before cropping should provide a more symmetric spectral input.
 
-![Model with peak alignment: Despite the theoretical advantage, performance degraded ($R^2$ ≈ 0.85, RMSE ≈ 1.60 ppm). Aligning peaks *removes* the red shift information that PLS uses as a concentration feature.](images/v41_chla_evaluation.png){#fig-v41-eval}
+![Model with peak alignment: Despite the theoretical advantage, performance degraded ($R^2$ ≈ 0.85, RMSE ≈ 1.60 mg/L). Aligning peaks *removes* the red shift information that PLS uses as a concentration feature.](images/v41_chla_evaluation.png){#fig-v41-eval}
 
 **Outcome:** Performance was **worse** with alignment ($R^2$ dropped from 0.87 to ~0.85). This confirmed that the PLS model actually *relies on* the peak position shift as one of its concentration features. Removing this information by alignment was counterproductive. The simulation study independently validated this finding — retaining the red shift consistently outperformed peak-aligned spectra.
 
 #### Issue 3 — IFE Non-Linearity Across the Concentration Range
-The concentration-dependent non-linearity from IFE suggested that a single linear model might struggle across the full 0–20 ppm range. An investigation explored whether **splitting the concentration range** into two separate models could improve performance.
+The concentration-dependent non-linearity from IFE suggested that a single linear model might struggle across the full 0–20 mg/L range. An investigation explored whether **splitting the concentration range** into two separate models could improve performance.
 
-**Approach:** Two independent PLS models were trained — one for concentrations ≤ 5 ppm (Beer-Lambert linear regime) and one for > 5 ppm (IFE-dominated regime). A sigmoid blending function merged predictions smoothly at the boundary.
+**Approach:** Two independent PLS models were trained — one for concentrations ≤ 5 mg/L (Beer-Lambert linear regime) and one for > 5 mg/L (IFE-dominated regime). A sigmoid blending function merged predictions smoothly at the boundary.
 
 ::: {layout-ncol=2}
 ![Single PLS model with variance profile (rightmost panel). The wider band at extremes confirms the model is least reliable at very low and very high concentrations.](images/v5_chla_evaluation.png){#fig-v5-single}
 
-![Piecewise (split) model. The purple line marks the 5 ppm split threshold. Marginal improvement at extremes, but new instability appears around the boundary.](images/v5_chla_piecewise.png){#fig-v5-piecewise}
+![Piecewise (split) model. The purple line marks the 5 mg/L split threshold. Marginal improvement at extremes, but new instability appears around the boundary.](images/v5_chla_piecewise.png){#fig-v5-piecewise}
 :::
 
 **Outcome:** It turned out that we didn't have enough samples to support this approach. Splitting our 32 Chl-a samples (Why 32 samples? Some of the data had to be removed since they exceed the threshold limit.) into two groups meant each model only had about 15 samples to learn from, which is far too few. The piecewise approach gave us a tiny improvement at the extremes but added more instability at the split point. This confirmed that our main bottleneck is the number of samples, not the model's complexity.
@@ -384,24 +392,34 @@ The synthetic data generator models the specific hardware response of our TCD130
 1.  **Red Shift**: Peak positions shift rightward as concentration increases (up to 40 px/(mg/L) for Chl-b).
 2.  **Saturation Physics**: Intensity follows an exponential saturation curve based on the Beer-Lambert law ($I \propto 1 - e^{-\alpha C}$).
 3.  **Noise Theory**: Adds both **Shot Noise** (signal-dependent) and **Read Noise** (constant electronic noise) to match real CCD characteristics.
-4.  **Signal Integration**: Linearly scales intensities with integration time until the 12-bit ADC ceiling (4095 counts) is reached.
+4.  **Hardware Spectral Sensitivity**: Implements the TCD1304 **Relative Spectral Response** curve from the datasheet. Chl-a ($670\text{nm}$) and Chl-b ($650\text{nm}$) emissions are weighted by factors of 0.85 and 0.95 respectively.
+5.  **Dark Current Dynamics**: Models $t_{INT}$-dependent dark signal as shown in the datasheet's *Dark Signal Voltage vs. Integration Time* plot ($\approx 1\%$ of $V_{SAT}$ per $100\text{ms}$ at $30^\circ\text{C}$).
+6.  **Supply Voltage Sensitivity**: Calibrated for a **3.3V power supply**. According to the datasheet's sensitivity vs. supply plot, this reduces absolute sensitivity to $\approx 77\%$ of the standard 4V test condition.
+7.  **Signal Integration**: Linearly scales intensities with integration time until the 16-bit ADC ceiling (65535 counts) is reached.
 
 Using this setup we tested six key parameters that affect our measurement accuracy:
 
 ### Effect of Sample Count and Peak Alignment
-The simulation confirmed that **200+ unique concentration samples** are required to achieve an RMSE below 0.3 ppm. Also we found that the **unaligned spectra** (preserving the red shift) consistently outperformed peak-aligned spectra at every sample count, demonstrating that the red shift is a valuable concentration feature.
+The simulation confirmed that **200+ unique concentration samples** are required to achieve an RMSE below 0.3 mg/L. Also we found that the **unaligned spectra** (preserving the red shift) consistently outperformed peak-aligned spectra at every sample count, demonstrating that the red shift is a valuable concentration feature.
 
 ![Effect of sample count on RMSE and $R^2$ for aligned vs. unaligned spectra. Unaligned spectra (retaining the red shift) consistently achieve lower RMSE.](images/sim_sample_count.png){#fig-sim-sample-count}
 
 ### Effect of Frame Averaging (Noise Reduction)
-Averaging multiple CCD frames reduces noise proportionally to $\sqrt{N}$. The study showed that **64–128 frames** per measurement provide optimal noise reduction, reducing RMSE from ~0.9 ppm (single frame) to ~0.2 ppm (128 frames). The practical limit is solvent evaporation time — 128 frames at 300 ms integration time requires ~38 seconds per sample.
+Averaging multiple CCD frames reduces noise proportionally to $\sqrt{N}$. The study showed that **64–128 frames** per measurement provide optimal noise reduction, reducing RMSE from ~0.9 mg/L (single frame) to ~0.2 mg/L (128 frames). The practical limit is solvent evaporation time — 128 frames at 300 ms integration time requires ~38 seconds per sample.
 
 ![Effect of frame averaging on RMSE and SNR. The RMSE decreases proportionally to $1/\sqrt{N}$ as expected from noise theory.](images/sim_frame_averaging.png){#fig-sim-frame-avg}
 
 ### Integration Time Optimization
-The optimal integration time was found to be **300–700 ms**. Below 200 ms, the signal-to-noise ratio is insufficient. Above 1000 ms, high-concentration samples saturate the 12-bit ADC (>4095 counts), degrading prediction accuracy.
+The optimal integration time varies significantly between analytes due to differing fluorescence quantum yields. The simulation, calibrated to real-world hardware sensitivity, reveals:
 
-![Integration time vs. RMSE and peak ADC counts. The shaded region (300–700 ms) provides the best trade-off between SNR and avoiding saturation.](images/sim_integration_time.png){#fig-sim-inttime}
+- **Chlorophyll-a**: Optimal range is **300–800 ms**. Above 1000 ms, high-concentration samples (18+ mg/L) approach 16-bit saturation.
+- **Chlorophyll-b**: Much "dimmer" in this setup. Optimal range is **1500–4000 ms**. Even at 3000 ms, a 1 mg/L sample only reaches ~25,000 counts, leaving significant dynamic range.
+
+::: {layout-ncol=2}
+![Chl-a Integration time vs. RMSE and peak ADC counts. Shaded region (300–800 ms) provides best SNR.](images/sim_integration_time_chla.png){#fig-sim-inttime-chla}
+
+![Chl-b Integration time vs. RMSE and peak ADC counts. Chl-b requires much longer times (up to 4000 ms) to overcome the noise floor.](images/sim_integration_time_chlb.png){#fig-sim-inttime-chlb}
+:::
 
 ### Benchmarking: 1D CNN vs. PLS
 We also prototyped a 1D Convolutional Neural Network (CNN) to see how it compared against our primary PLS model. After testing different configurations, we found that the CNN achieved a significantly lower error rate—a **5.7× improvement** over PLS in terms of maximum prediction error. This suggests that the CNN is better at implicitly learning the non-linear Beer-Lambert response directly from the raw spectral data.
@@ -409,8 +427,8 @@ We also prototyped a 1D Convolutional Neural Network (CNN) to see how it compare
 | Metric | PLS (5 comp.) | 1D CNN (best) |
 | :--- | :---: | :---: |
 | $R^2$ | 0.9974 | **0.9987** |
-| RMSE (ppm) | 0.292 | **0.205** |
-| Max Error (ppm) | 2.94 | **0.52** |
+| RMSE (mg/L) | 0.292 | **0.205** |
+| Max Error (mg/L) | 2.94 | **0.52** |
 
 : Comparison of PLS Regression vs 1D CNN on 300 synthetic spectra with optimal collection parameters. {#tbl-pls-vs-cnn}
 
@@ -434,7 +452,44 @@ To test whether the CNN's simulation advantage translates to real-world performa
 
 On real data, both models achieved **essentially the same performance**. The CNN was marginally better for Chl-b (R² 0.86 vs 0.83), while PLS held a slight edge for Chl-a. This parity confirms the simulation's prediction: with only ~80 noisy samples and 10× frame averaging, the data quality — not the algorithm — is the limiting factor. The CNN's non-linear capacity simply cannot be realised without the 200+ clean samples recommended by the simulation study.
 
+\newpage
+
 ![1D CNN dual-output evaluation with Repeated 5-Fold CV (n=3). Red squares show mean predictions; error bars (1σ) quantify model stability. The summary boxes provide 95% CI bounds, showing comparable performance to the PLS baseline.](images/real_data_cnn_evaluation.png){#fig-cnn-real-eval}
+
+### Model Evolution & Performance Summary
+The following tables summarize the various modelling strategies investigated throughout the project, providing a cross-tabulation of physical issues targeted and the resulting performance metrics.
+
+#### Option A: Phase-wise Performance Breakdown
+This table provides a comprehensive overview of each investigation phase, identifying the specific physical bottleneck addressed and the resulting accuracy.
+
+| Investigation | Physical Issue Targeted | CV $R^2$ (Chl-a) | RMSE (mg/L) | Key Finding |
+|:---|:---|:---:|:---:|:---|
+| Baseline PLS (9 comp.) | — (reference) | 0.867 | ~1.55 | Funnel-shaped residuals; IFE heteroscedasticity present |
+| Log-transform target | Heteroscedastic Beer-Lambert response | ~0.88 | ~1.45 | Variance equalised ✓ but RMSE limited by data quantity |
+| Peak alignment | Red-shift removal | ~0.85 | ~1.60 | **Worse** — peak shift is a concentration feature; do not align |
+| Piecewise model | IFE non-linearity across range | ~0.88 | ~1.40 | Marginal gain; boundary instability; insufficient data split |
+| Simulation — PLS (ideal) | Ideal data quantity & SNR ($n=300$) | 0.997 | 0.29 | 5x better with proper data; algorithm is not the limit |
+| Simulation — 1D CNN (ideal) | Deep learning ceiling ($n=300$) | 0.999 | 0.20 | Theoretical best; CNN wins only with sufficient clean data |
+| Real data — Dual PLS (n=79) | Combined Chl-a + Chl-b | 0.852 / 0.892† | 1.41 / 0.79† | Robust recovery using two-channel concatenated spectra |
+| Real data — 1D CNN (n=79) | Deep learning on noisy data | 0.835 / 0.873† | 1.49 / 0.86† | Converges with PLS — performance capped by SNR/Sample Count |
+
+*† Left value = Chl-a, right value = Chl-b.*
+
+#### Option B: Issue vs. Outcome Matrix
+A visual summary of how each intervention addressed the core physical challenges.
+
+| Investigation | Fixes Heteroscedasticity | Retains Red-Shift | Handles IFE Non-linearity | Sufficient Data | Net RMSE vs. Baseline |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| Baseline PLS | No | Yes | Partial | No | — (ref: 1.55) |
+| Log-transform | Yes | Yes | Partial | No | -0.10 (~1.45) |
+| Peak alignment | Partial | No | Partial | No | **+0.05** (worse) |
+| Piecewise model | Partial | Yes | Yes | No | -0.15 (~1.40) |
+| Simulation — PLS | Yes | Yes | Yes | Yes | **-1.26** (0.29) |
+| Simulation — CNN | Yes | Yes | Yes | Yes | **-1.35** (0.20) |
+| Real dual-PLS | Partial | Yes | Partial | No | -0.14 (1.41) |
+| Real 1D CNN | Partial | Yes | Partial | No | -0.06 (1.49) |
+
+*Yes = addressed, No = not addressed / made worse, Partial = partial*
 
 ### Recommended Protocol
 Based on the simulation findings, the following protocol is recommended for future collection:
@@ -442,9 +497,9 @@ Based on the simulation findings, the following protocol is recommended for futu
 | Parameter | Recommendation |
 | :--- | :--- |
 | **Sample Count** | 200+ unique concentrations |
-| **Concentration Spacing** | Linear or $\sqrt{}$ spacing (0.1–20 ppm) |
+| **Concentration Spacing** | Linear or $\sqrt{}$ spacing (0.1–20 mg/L) |
 | **Frame Averaging** | 64× minimum, 128× ideal |
-| **Integration Time** | 300–700 ms (auto-exposure target: 3000–3500 ADC counts) |
+| **Integration Time** | 300–700 ms (auto-exposure target: 48,000–56,000 ADC counts) |
 | **Peak Alignment** | Do NOT align — preserve the red shift |
 | **PLS Components** | 4–5 (optimize via cross-validation) |
 
@@ -504,15 +559,11 @@ The dataset heatmaps (@fig-heatmap-comparison) provide a compact overview of the
 The laboratory environment during initial calibration session was not fully rigid. Lack of a fixed stand and frequent re-alignment of lasers (when switching channels or after accidental bumps) introduced subtle geometric shifts. These fluctuations, along with slight repositioning of the cuvette, are clearly captured by the sensor's sensitivity as observed in the heatmap's jagged transitions. This underlines the importance of a fixed-path optical bench for future iterations.
 :::
 
-**Chl-a Heatmaps (Real vs. Ideal):**
-
 ::: {#fig-heatmap-comparison layout-ncol=2}
 ![**Real Data Heatmap (Chl-a)**: Sparse coverage, noise artifacts visible.](images/real_spectra_heatmap_chla.png){#fig-real-heatmap-a}
 
 ![**Ideal Heatmap (Chl-a)**: Dense 300-sample simulation revealing a clean red shift gradient.](images/sim_chla_heatmap.png){#fig-ideal-heatmap-a}
 :::
-
-**Chl-b Heatmaps (Real vs. Ideal):**
 
 ::: {#fig-heatmap-comparison-b layout-ncol=2}
 ![**Real Data Heatmap (Chl-b)**: Low concentration range with ALS correction applied.](images/real_spectra_heatmap_chlb.png){#fig-real-heatmap-b}
@@ -532,11 +583,11 @@ The laboratory environment during initial calibration session was not fully rigi
 | **Outlier Removal** | Manual | MAD + Hotelling T² |
 | **PLS Components** | 9 | 4–5 |
 | **CV Test R²** | 0.85–0.87 | 0.997 |
-| **RMSE** | ~1.5 ppm | 0.29 ppm |
+| **RMSE** | ~1.5 mg/L | 0.29 mg/L |
 
 : Current data collection parameters versus the simulation-derived ideal case. {#tbl-current-vs-ideal}
 
-| Investigation | Physical Issue | CV $R^2$ | RMSE (ppm) | Finding |
+| Investigation | Physical Issue | CV $R^2$ | RMSE (mg/L) | Finding |
 | :--- | :--- | :---: | :---: | :--- |
 | **Baseline PLS** | — | 0.867 | ~1.55 | Funnel residuals (IFE) |
 | **Log-transform** | Heteroscedasticity | ~0.88 | ~1.45 | Variance equalised, RMSE unchanged |
@@ -551,7 +602,7 @@ The laboratory environment during initial calibration session was not fully rigi
 ### Discussion of Data Quantity vs. Algorithm
 Each investigation confirmed that the three physical phenomena affecting model performance — heteroscedastic Beer-Lambert response, concentration-dependent peak shift, and IFE saturation — are all *correctly handled* by the standard PLS preprocessing pipeline.
 
-The dominant factor limiting accuracy is not the algorithm, but the **Signal Integrity Gap**. As seen in @fig-pipeline-comparison, the real data suffer from a noise floor that obscures fine spectral features in the 1st derivative. This was further confirmed when we trained the 1D CNN on the actual collected data (@tbl-pls-cnn-real): both CNN and PLS converged to the **same performance ceiling** ($R^2 \approx 0.82\text{–}0.87$), proving that the data quality — not model complexity — is the bottleneck. Moving from 10× to 128× frame averaging (as recommended by simulation) will provide the SNR necessary for either model to achieve the target < 0.3 ppm precision.
+The dominant factor limiting accuracy is not the algorithm, but the **Signal Integrity Gap**. As seen in @fig-pipeline-comparison, the real data suffer from a noise floor that obscures fine spectral features in the 1st derivative. This was further confirmed when we trained the 1D CNN on the actual collected data (@tbl-pls-cnn-real): both CNN and PLS converged to the **same performance ceiling** ($R^2 \approx 0.82\text{–}0.87$), proving that the data quality — not model complexity — is the bottleneck. Moving from 10× to 128× frame averaging (as recommended by simulation) will provide the SNR necessary for either model to achieve the target < 0.3 mg/L precision.
 
 **Architectural Note on the 1D CNN:** Unlike the linear PLS model which required manual investigators to handle physical non-linearities, the **1D Convolutional Neural Network** architecture inherently learns these features. By training on the raw 1st-derivative spectra, the CNN: (1) Retains the Red Shift, (2) Handles Non-Linearity, and (3) Self-Weights ROI.
 

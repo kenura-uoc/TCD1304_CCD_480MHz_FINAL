@@ -227,7 +227,7 @@ skinparam cloudBackgroundColor white
 partition "Hardware" {
     :CCD Sensor (TCD1304);
     note right: Dark = ~2.5V (High)\nLight = ~0.5V (Low)
-    :STM32 ADC (12-bit/16-bit);
+    :STM32 ADC (16-bit);
     note right: Raw ADC Values\n(High=Dark)
 }
 
