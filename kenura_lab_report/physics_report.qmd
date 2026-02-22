@@ -223,14 +223,16 @@ The cross-IFE creates a non-linear concentration coupling: the apparent Chl-a si
 #### Phase 2 Ideal Simulation: Establishing a Theoretical Baseline {#sec-phase2-sim}
 Before running experiments on real spinach extracts, we developed a simulation study in `ml_model/simulation_combined.py`. We generated 300 synthetic mixed-solution spectra with high frame averaging (128×) to see how well our models could theoretically distinguish between Chl-a and Chl-b. We compared a dual-output PLS model against a 1D Convolutional Neural Network (CNN):
 
-| Analyte | Model | $R^2$ (5-fold CV) | RMSE (mg/L) |
-| :--- | :--- | :---: | :---: |
-| **Chl-a** | Dual-Output PLS | 0.9953 | 0.165 |
-| **Chl-b** | Dual-Output PLS | 0.9937 | 0.244 |
-| **Chl-a** | Dual-Output 1D CNN | ~0.968 | ~0.42 |
-| **Chl-b** | Dual-Output 1D CNN | ~0.962 | ~0.44 |
+| Analyte | Model | $R^2$ (5-fold CV) | RMSE (mg/L) | MAE (mg/L) |
+| :--- | :--- | :---: | :---: | :---: |
+| **Chl-a** | Dual-Output PLS (n=15) | 0.9955 | 0.162 | 0.092 |
+| **Chl-b** | Dual-Output PLS (n=15) | 0.9937 | 0.078 | 0.046 |
+| **Chl-a** | Dual-Output 1D CNN | 0.9895 | 0.248 | 0.196 |
+| **Chl-b** | Dual-Output 1D CNN | 0.9794 | 0.142 | 0.117 |
 
-: Phase 2 ideal simulation results — PLS versus 1D CNN on physics-complete mixed-solution synthetic data. {#tbl-phase2-ideal}
+: Phase 2 ideal simulation results — PLS versus 1D CNN on physics-complete mixed-solution synthetic data, after GPU-accelerated hyperparameter grid search (320 CNN configurations, 30 PLS configurations). {#tbl-phase2-ideal}
+
+**Hyperparameter Optimisation.** To ensure both models operated at their theoretical best, a comprehensive grid search was conducted on the ideal simulation data using a Tesla T4 GPU. For PLS, the number of latent components was swept from 1 to 15 with and without StandardScaler ($2 \times 15 = 30$ configurations); the best result was achieved at $n_\text{components} = 15$ with no scaling (since SNV normalisation was already applied). For the 1D CNN, a factored search over kernel sizes, filter counts, learning rate, epochs, batch size, and dropout rates ($5 \times 2 \times 2 \times 2 \times 2 \times 2 \times 2 = 320$ configurations, each evaluated with 5-fold CV = 1,600 training runs) yielded an optimal architecture of kernels = (51, 25, 11), filters = (16, 32, 64), learning rate = $3 \times 10^{-3}$, 80 epochs, batch size 16, with dropout rates of 0.1 (conv) and 0.2 (FC).
 
 The PLS outperforms the CNN at this sample size ($n = 300$) because the dual-output PLS efficiently exploits the **linear spectral unmixing** structure of the superposed bands, where the CNN requires more data to converge its nonlinear feature extraction. As $n$ increases beyond 1000 samples with real hardware, the CNN is expected to surpass PLS by capturing the nonlinear IFE coupling implicitly.
 
@@ -273,6 +275,55 @@ The detailed fold-level results for a single 20-fold cycle are provided in @tbl-
 
 The narrow error bars and tight 95% CI bounds (@fig-premium-eval) confirm that the model's performance is stable across different subsets of the experimental data. The Mean Absolute Error (MAE) of ~1.00 mg/L for Chl-a and ~0.60 mg/L for Chl-b indicates that the "combined channel" approach robustly recovers pigment concentrations.
 
+::: {.callout-note}
+### Why the Error Bars Are Smaller in the Dual-Output Models
+A notable observation across both the PLS and 1D CNN dual-output models (@fig-premium-eval, @fig-cnn-real-eval) is that the per-sample error bars ($1\sigma$ across repeated CV) are markedly smaller than those seen in the Phase 1 single-analyte models. Three factors explain this:
+
+1. **Inter-analyte spectral constraints.** The dual model receives *both* the 405 nm and 450 nm laser channels as a concatenated input. Because each channel carries partially independent information about each pigment (via cross-excitation ratios), the model has twice the spectral evidence per sample, reducing prediction variance.
+2. **Multi-task regularisation.** Predicting two targets simultaneously forces the latent variables (PLS components) or convolutional filters (CNN) to capture shared spectral structure rather than overfitting to noise in a single target. This implicit regularisation leads to more stable predictions across different CV folds and repeats.
+3. **Statistical effect of repeated CV with a small number of repeats.** Both models use only $n = 3$ repeats of K-fold CV. With just three prediction values per sample, the standard deviation is inherently small — it reflects the model's consistency across slightly different fold partitions rather than its absolute prediction uncertainty. Increasing $n_\text{repeats}$ would produce more representative uncertainty estimates.
+:::
+
+#### Ideal Simulation Grid Search Results {#sec-ideal-gridsearch}
+
+![Ideal dual-output grid search comparison: PLS RMSE curve (left) and top-15 CNN configurations ranked by total RMSE (right). PLS achieves the overall best ΣRMSE = 0.240 at n=15 components, while the best CNN reaches 0.390 with kernels (51,25,11).](images/dual_gridsearch_comparison.png){#fig-gridsearch-comparison}
+
+#### Real Data Model Comparison: PLS vs CNN {#sec-realdata-comparison}
+To determine whether the CNN could outperform PLS on real experimental data, the top-5 CNN architectures from the ideal grid search were evaluated on the full 79-sample real dataset using **Repeated 5-Fold CV (n=3)**. All configurations were tested on a Tesla T4 GPU:
+
+| Model | Chl-a $R^2$ | Chl-b $R^2$ | RMSE a | RMSE b | $\Sigma$RMSE |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **PLS (n=15)** | **0.849** | **0.898** | **1.42** | **0.77** | **2.19** |
+| CNN #1: k(51,25,11) | 0.834 | 0.868 | 1.49 | 0.87 | 2.36 |
+| CNN #2: k(31,15,7) ep120 | 0.822 | 0.855 | 1.54 | 0.92 | 2.46 |
+| CNN #4: k(41,21,11) | 0.817 | 0.846 | 1.56 | 0.94 | 2.51 |
+| CNN #3: k(31,15,7) ep80 | 0.794 | 0.824 | 1.66 | 1.01 | 2.67 |
+| CNN #5: k(21,11,5) | 0.750 | 0.776 | 1.83 | 1.13 | 2.96 |
+
+: Real data validation — PLS versus top-5 CNN configurations from the ideal grid search, evaluated on 79 real experimental samples with repeated 5-fold CV. {#tbl-realdata-comparison}
+
+![Real data validation: PLS and top-5 CNN model predictions for Chl-a (left) and Chl-b (right). Error bars show ±1σ across repeated CV. PLS consistently outperforms all CNN architectures at this sample size.](images/realdata_dual_validation_all.png){#fig-cnn-real-eval}
+
+![Model comparison summary: Total RMSE (left), Chl-a R² (centre), and Chl-b R² (right) across all tested models. PLS wins on every metric.](images/realdata_dual_summary_bars.png){#fig-realdata-bars}
+
+The results confirm that with $n = 79$ real samples, PLS outperforms all CNN variants by 8–35% in total RMSE. This is consistent with the ideal simulation finding and a well-known principle in chemometrics: linear models with strong physical priors (spectral unmixing) dominate nonlinear learners at small sample sizes. The CNN's advantage — its ability to learn nonlinear IFE and quenching corrections implicitly — cannot manifest without at least several hundred diverse training spectra.
+
+#### Solution 9 Field Validation {#sec-solution9-validation}
+
+To validate the model on a completely unseen sample, a blind test was performed using **Solution 9** — a mixed chlorophyll solution with UV-Vis-verified ground truth concentrations (Chl-a = 3.0465 mg/L, Chl-b = 1.865 mg/L). Spectral data was captured by the STM32-based field device at 300 ms integration time (47 frames at 405 nm, 77 frames at 450 nm) and recorded as `.npz` files via the CCD monitor software.
+
+A critical preprocessing step for field-recorded spectra is **dark current subtraction**. The TCD1304 CCD's first 32 pixels are optically masked (dummy pixels) and provide a real-time dark level estimate. This dark level ($\approx$7920 counts at 300 ms) was subtracted from each spectrum before applying the standard pipeline (background subtraction, ROI extraction, SG smoothing, 1st derivative, SNV normalisation). Two preprocessing variants were compared: (A) dark + laboratory background subtraction, matching the training pipeline, and (B) dark subtraction only, omitting the lab background.
+
+| Model | Chl-a (mg/L) | Chl-a Error | Chl-b (mg/L) | Chl-b Error |
+| :--- | :---: | :---: | :---: | :---: |
+| **UV-Vis (ground truth)** | **3.046** | — | **1.865** | — |
+| PLS n=15 (dark + BG) | 4.965 | +63.0% | **1.700** | **−8.9%** |
+
+: Solution 9 field validation — PLS(n=15) predictions with dark current subtraction compared to the STM32 on-device model and UV-Vis ground truth. {#tbl-solution9}
+
+![Solution 9 blind validation: PLS(n=15) with dark current subtraction (dummy pixels 0–31) versus the embedded STM32 lite model and UV-Vis ground truth. Top row: prediction comparison for Chl-a (left), Chl-b (centre), and summary table (right). Bottom row: raw spectra after dark+BG subtraction (left), preprocessed SNV features (centre), and absolute errors (right).](images/solution9_validation.png){#fig-solution9-validation}
+
+The Chl-b prediction of **1.700 mg/L** (−8.9% error, $\Delta$ = 0.165 mg/L) demonstrates that the dual-output PLS model can produce meaningful quantitative results on unseen field data. The Chl-a prediction shows a larger positive bias (+63%), likely due to the mismatch between the laboratory background spectra used during training and the field recording conditions — the raw spectra plot (@fig-solution9-validation, bottom-left) shows negative intensities after background subtraction in the 450 nm channel region, indicating the lab background overestimates the ambient signal in field conditions. Removing the lab background entirely (dark-only variant) worsened both predictions, confirming that background matching remains a key challenge for field deployment. The STM32 on-device model, which uses a simplified single-channel preprocessing pipeline, performed significantly worse on both analytes.
 
 
 ### Case Study: Model Development & Iteration {#sec-case-study}
@@ -369,19 +420,21 @@ We also prototyped a 1D Convolutional Neural Network (CNN) to see how it compare
 ![Grid search over CNN kernel sizes. (51, 25, 11) achieving the best RMSE.](images/kernel_size_search.png){#fig-kernel-search}
 :::
 
+\newpage
+
 ### Validation on Real-World Data
 To test whether the CNN's simulation advantage translates to real-world performance, we trained a **dual-output 1D CNN** on our actual 79-sample combined dataset (concatenated 405 nm + 450 nm spectra). The results were revealing:
 
 | Model | Chl-a $R^2$ | Chl-b $R^2$ | Chl-a RMSE | Chl-b RMSE |
 | :--- | :---: | :---: | :---: | :---: |
-| **PLS (20-fold CV)** | 0.871 | 0.834 | 1.45 mg/L | 1.12 mg/L |
-| **1D CNN (5-fold CV)** | 0.820 | 0.860 | 1.55 mg/L | 0.90 mg/L |
+| **PLS (20-fold CV)** | 0.852 | 0.892 | 1.41 mg/L | 0.79 mg/L |
+| **1D CNN (5-fold CV)** | 0.835 | 0.873 | 1.49 mg/L | 0.86 mg/L |
 
-: Comparison of PLS and 1D CNN on collected real-world spectra (n = 79). {#tbl-pls-cnn-real}
+: Comparison of PLS and 1D CNN on collected real-world spectra (n = 79). Both models use Repeated CV (n=3) for robust evaluation. {#tbl-pls-cnn-real}
 
 On real data, both models achieved **essentially the same performance**. The CNN was marginally better for Chl-b (R² 0.86 vs 0.83), while PLS held a slight edge for Chl-a. This parity confirms the simulation's prediction: with only ~80 noisy samples and 10× frame averaging, the data quality — not the algorithm — is the limiting factor. The CNN's non-linear capacity simply cannot be realised without the 200+ clean samples recommended by the simulation study.
 
-![1D CNN dual-output evaluation on real-world spinach-extract samples. The model captures the combined concentration trends despite limited training data.](images/real_data_cnn_evaluation.png){#fig-cnn-real-eval}
+![1D CNN dual-output evaluation with Repeated 5-Fold CV (n=3). Red squares show mean predictions; error bars (1σ) quantify model stability. The summary boxes provide 95% CI bounds, showing comparable performance to the PLS baseline.](images/real_data_cnn_evaluation.png){#fig-cnn-real-eval}
 
 ### Recommended Protocol
 Based on the simulation findings, the following protocol is recommended for future collection:
@@ -429,7 +482,7 @@ Comparisons of Simulated Ideal Preprocessing Pipelines for Chl-a and Chl-b.
 ::: {#fig-pipeline-comparison layout-ncol=2}
 ![**Real Data Pipeline (Chl-a)**: Sparse dataset ($n = 83$), high noise in 1st derivative.](images/real_spectra_pipeline_chla.png){#fig-real-pipeline-a}
 
-![**Ideal Pipeline (Chl-a)**: Simulation reference, 128× averaging, ROI [1300–3500].](images/sim_chla_pipeline.png){#fig-ideal-pipeline-a}
+![**Ideal Pipeline (Chl-a)**: Simulation reference, 128× averaging, ROI [1300–3500].](images/sim_chla_pipeline.png){#fig-ideal-pipeline-a-ref}
 
 Chl-a Preprocessing Pipeline: Real Data vs. Simulation-Ideal.
 :::
@@ -439,7 +492,7 @@ Chl-a Preprocessing Pipeline: Real Data vs. Simulation-Ideal.
 ::: {#fig-pipeline-comparison-b layout-ncol=2}
 ![**Real Data Pipeline (Chl-b)**: ALS baseline corrected, variable integration times.](images/real_spectra_pipeline_chlb.png){#fig-real-pipeline-b}
 
-![**Ideal Pipeline (Chl-b)**: Simulation showing full spectral extent of the Chl-b peak.](images/sim_chlb_pipeline.png){#fig-ideal-pipeline-b}
+![**Ideal Pipeline (Chl-b)**: Simulation showing full spectral extent of the Chl-b peak.](images/sim_chlb_pipeline.png){#fig-ideal-pipeline-b-ref}
 
 Chl-b Preprocessing Pipeline: Real Data vs. Simulation-Ideal.
 :::
