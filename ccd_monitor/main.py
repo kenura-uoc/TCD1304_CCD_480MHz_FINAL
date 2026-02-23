@@ -69,7 +69,7 @@ class SettingsManager:
             "last_project": "Default",
             "remove_dummies": False,
             "y_max": 65535,
-            "integration_time_ms": 18  # Default integration time in ms
+            "integration_time_ms": 1000  # Default integration time in ms
         }
         self.data = self.defaults.copy()
         self.load()
@@ -623,7 +623,7 @@ class CCDApp:
                 pixels = self.receiver.pixels.copy()
             
             # 1. Inversion - Always invert (TCD1304 outputs dark=high, light=low)
-            pixels = 65535 - pixels
+            # pixels = 65535 - pixels # Firmware now handles this globally
                 
             # 2. X Axis & Dummy Removal
             if self.calibration.enabled:
@@ -701,7 +701,7 @@ class CCDApp:
             idx = dpg.get_value("slider_hist")
             h_pixels = self.history_data['pixels'][idx]
             # Always invert history data too
-            h_pixels = 65535 - h_pixels
+            # h_pixels = 65535 - h_pixels # Firmware now/previously handled this? Legacy files might be inverted.
                  
             if self.calibration.enabled:
                 h_full_x = np.array([self.calibration.pixel_to_nm(i) for i in range(CCD_PIXELS)])
@@ -782,7 +782,7 @@ class CCDApp:
 
                             dpg.add_separator()
                             dpg.add_text("Signal Processing")
-                            dpg.add_text("Signal always inverted (Light=High)", color=(100, 200, 100))
+                            dpg.add_text("Signal pre-inverted by fw", color=(100, 200, 100))
                             
                             dpg.add_text("Temporal Smoothing (Avg Frames)")
                             dpg.add_slider_int(label="Avg", default_value=self.receiver.frame_avg_count, min_value=1, max_value=20, 

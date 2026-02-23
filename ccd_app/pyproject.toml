@@ -1,0 +1,14 @@
+[project]
+name = "ccd-app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dearpygui>=2.2",
+    "joblib>=1.5.3",
+    "numpy>=2.4.2",
+    "pyserial>=3.5",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.0",
+]
